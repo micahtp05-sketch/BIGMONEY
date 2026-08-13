@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BIGMONEY — Price Estimator</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --border: #262b36; --text: #e6e9ef;
+    --muted: #9aa3b2; --accent: #4ade80; --accent-dim: #1c5c37; --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 32px 20px;
+  }
+  main { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); margin: 0 0 28px; font-size: 14px; }
+  #drop {
+    border: 2px dashed var(--border); border-radius: 12px; padding: 44px 20px;
+    text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+    background: var(--panel);
+  }
+  #drop.over, #drop:hover { border-color: var(--accent); background: #1a2620; }
+  #drop p { margin: 0; color: var(--muted); }
+  #preview { max-width: 100%; max-height: 260px; border-radius: 8px; margin-top: 14px; }
+  input[type=text] {
+    width: 100%; margin-top: 14px; padding: 11px 13px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text); font: inherit;
+  }
+  button {
+    margin-top: 14px; width: 100%; padding: 13px; border: 0; border-radius: 8px;
+    background: var(--accent); color: #06240f; font: 600 15px inherit; cursor: pointer;
+  }
+  button:disabled { background: var(--accent-dim); color: var(--muted); cursor: not-allowed; }
+  .card {
+    margin-top: 24px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 22px;
+  }
+  .price { font-size: 40px; font-weight: 700; letter-spacing: -0.03em; }
+  .range { color: var(--muted); font-size: 14px; margin-top: 2px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-top: 18px;
+          padding-top: 18px; border-top: 1px solid var(--border); font-size: 13px; }
+  .meta div span { color: var(--muted); display: block; font-size: 12px; }
+  .bar { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .warn { color: var(--warn); font-size: 13px; margin-top: 12px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  td.p { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  details { margin-top: 20px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  .err { color: #f87171; }
+</style>
+</head>
+<body>
+<main>
+  <h1>BIGMONEY</h1>
+  <p class="sub">Photograph anything. Get a price estimate from comparable listings.</p>
+
+  <div id="drop">
+    <p id="dropText">Drop an image here, or click to choose one</p>
+    <img id="preview" hidden alt="Selected item">
+  </div>
+  <input type="file" id="file" accept="image/*" hidden>
+  <input type="text" id="hint" placeholder="Optional: anything a photo can't show (age, box, damage…)">
+  <button id="go" disabled>Estimate value</button>
+
+  <div id="out"></div>
+</main>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const drop = $('drop'), fileInput = $('file'), go = $('go'), out = $('out');
+let selected = null;
+
+drop.addEventListener('click', () => fileInput.click());
+drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', (e) => {
+  e.preventDefault(); drop.classList.remove('over');
+  if (e.dataTransfer.files[0]) select(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => fileInput.files[0] && select(fileInput.files[0]));
+
+function select(f) {
+  if (!f.type.startsWith('image/')) return;
+  selected = f;
+  $('preview').src = URL.createObjectURL(f);
+  $('preview').hidden = false;
+  $('dropText').textContent = f.name;
+  go.disabled = false;
+}
+
+const money = (cents, cur) =>
+  new Intl.NumberFormat(undefined, { style: 'currency', currency: cur }).format(cents / 100);
+
+go.addEventListener('click', async () => {
+  if (!selected) return;
+  go.disabled = true;
+  go.textContent = 'Analyzing…';
+  out.innerHTML = '';
+
+  const body = new FormData();
+  body.append('hint', $('hint').value);
+  body.append('image', selected);
+
+  try {
+    const res = await fetch('/api/estimate', { method: 'POST', body });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
+    render(data);
+  } catch (err) {
+    out.innerHTML = `<div class="card err">${escapeHtml(err.message)}</div>`;
+  } finally {
+    go.disabled = false;
+    go.textContent = 'Estimate value';
+  }
+});
+
+function render({ item, estimate, listings, warnings }) {
+  const parts = [];
+
+  if (estimate) {
+    const pct = Math.round(estimate.confidence * 100);
+    parts.push(`
+      <div class="card">
+        <div style="color:var(--muted);font-size:13px">${escapeHtml(item.title)}</div>
+        <div class="price">${money(estimate.estimateCents, estimate.currency)}</div>
+        <div class="range">Typical range ${money(estimate.lowCents, estimate.currency)} – ${money(estimate.highCents, estimate.currency)}</div>
+        <div class="meta">
+          <div><span>Confidence</span>${pct}%<div class="bar"><i style="width:${pct}%"></i></div></div>
+          <div><span>Comparables</span>${estimate.sampleSize}</div>
+          <div><span>Outliers dropped</span>${estimate.outliersRemoved}</div>
+          <div><span>Trimmed mean</span>${money(estimate.trimmedMeanCents, estimate.currency)}</div>
+          <div><span>Condition</span>${escapeHtml(item.condition.replace('_', ' '))}</div>
+        </div>
+        <div class="warn" style="color:var(--muted)">${escapeHtml(estimate.confidenceReason)}</div>
+      </div>`);
+  } else {
+    parts.push(`<div class="card">
+      <div style="color:var(--muted);font-size:13px">${escapeHtml(item.title)}</div>
+      <div class="price" style="font-size:22px">No estimate available</div>
+      <div class="range">No comparable listings were found for this item.</div>
+    </div>`);
+  }
+
+  if (item.notes) parts.push(`<div class="card warn">Note: ${escapeHtml(item.notes)}</div>`);
+  for (const w of warnings) parts.push(`<div class="card warn">${escapeHtml(w)}</div>`);
+
+  if (listings.length) {
+    const rows = listings.slice(0, 30).map((l) => `<tr>
+      <td>${l.url ? `<a href="${escapeHtml(l.url)}" target="_blank" rel="noopener">${escapeHtml(l.title)}</a>` : escapeHtml(l.title)}</td>
+      <td>${escapeHtml(l.condition ?? '—')}</td>
+      <td class="p">${money(l.priceCents, l.currency)}</td>
+    </tr>`).join('');
+    parts.push(`<details open><summary>${listings.length} comparable listing${listings.length === 1 ? '' : 's'}</summary>
+      <table><thead><tr><th>Listing</th><th>Condition</th><th class="p">Price</th></tr></thead>
+      <tbody>${rows}</tbody></table></details>`);
+  }
+
+  out.innerHTML = parts.join('');
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+</script>
+</body>
+</html>
