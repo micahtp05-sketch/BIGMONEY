@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Style guide — Untitled</title>
+<meta name="description" content="Live rendering of the site's colour, type, and component tokens.">
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='4' fill='%232f5bd8'/></svg>">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<script src="/app.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="/">Untitled</a>
+    <nav class="nav" aria-label="Primary">
+      <a href="/">Home</a>
+      <a href="/about">About</a>
+      <a href="/styleguide">Style guide</a>
+    </nav>
+    <button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch theme">☾</button>
+  </div>
+</header>
+
+<main id="main">
+<section class="section container">
+  <div class="prose">
+    <h1>Style guide</h1>
+    <p>
+      Every value below is read live from <code>styles.css</code>. Change a token
+      and this page changes with it — which makes it the fastest way to check a
+      palette in both themes before committing to it.
+    </p>
+  </div>
+</section>
+
+<section class="section container">
+  <h2>Colour</h2>
+  <p style="color: var(--text-muted); margin-top: var(--space-2);">
+    Use the theme toggle in the header to check both palettes.
+  </p>
+  <div class="swatches" style="margin-top: var(--space-5);">
+    <div class="swatch"><div class="chip" style="background: var(--bg)"></div><div class="label">--bg</div></div>
+    <div class="swatch"><div class="chip" style="background: var(--bg-subtle)"></div><div class="label">--bg-subtle</div></div>
+    <div class="swatch"><div class="chip" style="background: var(--surface)"></div><div class="label">--surface</div></div>
+    <div class="swatch"><div class="chip" style="background: var(--border)"></div><div class="label">--border</div></div>
+    <div class="swatch"><div class="chip" style="background: var(--border-strong)"></div><div class="label">--border-strong</div></div>
+    <div class="swatch"><div class="chip" style="background: var(--text)"></div><div class="label">--text</div></div>
+    <div class="swatch"><div class="chip" style="background: var(--text-muted)"></div><div class="label">--text-muted</div></div>
+    <div class="swatch"><div class="chip" style="background: var(--accent)"></div><div class="label">--accent</div></div>
+    <div class="swatch"><div class="chip" style="background: var(--accent-subtle)"></div><div class="label">--accent-subtle</div></div>
+  </div>
+</section>
+
+<section class="section container">
+  <h2>Type scale</h2>
+  <div style="margin-top: var(--space-5);">
+    <p style="font-size: var(--step-3); line-height: 1.2; letter-spacing: -0.02em;">Step 3 — page title</p>
+    <p style="font-size: var(--step-2); line-height: 1.2; letter-spacing: -0.02em; margin-top: var(--space-4);">Step 2 — section heading</p>
+    <p style="font-size: var(--step-1); margin-top: var(--space-4);">Step 1 — subheading and lede</p>
+    <p style="font-size: var(--step-0); margin-top: var(--space-4);">Step 0 — body copy, the default everywhere.</p>
+    <p style="font-size: var(--step--1); color: var(--text-muted); margin-top: var(--space-4);">Step −1 — captions, navigation, metadata.</p>
+  </div>
+  <p class="note" style="margin-top: var(--space-5);">
+    Each step is a <code>clamp()</code>, so the scale compresses on narrow screens
+    without a media query. Resize the window to watch it move.
+  </p>
+</section>
+
+<section class="section container">
+  <h2>Buttons</h2>
+  <div style="display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-5);">
+    <button class="button" type="button">Primary</button>
+    <button class="button secondary" type="button">Secondary</button>
+    <a class="button" href="#main">Link as button</a>
+  </div>
+</section>
+
+<section class="section container">
+  <h2>Cards</h2>
+  <div class="grid" style="margin-top: var(--space-5);">
+    <article class="card">
+      <h3>Card heading</h3>
+      <p>Cards sit on <code>--surface</code> with a one-pixel border and the shared shadow token.</p>
+    </article>
+    <article class="card">
+      <h3>Another</h3>
+      <p>The grid is <code>auto-fit</code>, so column count follows the available width on its own.</p>
+    </article>
+    <article class="card">
+      <h3>And a third</h3>
+      <p>Body copy inside a card drops to step −1 and <code>--text-muted</code>.</p>
+    </article>
+  </div>
+</section>
+
+<section class="section container">
+  <h2>Prose and code</h2>
+  <div class="prose" style="margin-top: var(--space-5);">
+    <p>
+      The <code>.prose</code> wrapper caps line length at <code>--measure</code>
+      and spaces sibling elements automatically, so long-form pages need no
+      per-element margins.
+    </p>
+    <pre><code>.prose > * + * { margin-top: var(--space-4); }</code></pre>
+    <p class="note">Notes use the accent as a left rule against a subtle fill.</p>
+  </div>
+</section>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <span>Untitled — a starting point.</span>
+    <span>Built with no framework.</span>
+  </div>
+</footer>
+</body>
+</html>

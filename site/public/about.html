@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About — Untitled</title>
+<meta name="description" content="What this scaffold is, and what it deliberately leaves out.">
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='4' fill='%232f5bd8'/></svg>">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<script src="/app.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="/">Untitled</a>
+    <nav class="nav" aria-label="Primary">
+      <a href="/">Home</a>
+      <a href="/about">About</a>
+      <a href="/styleguide">Style guide</a>
+    </nav>
+    <button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch theme">☾</button>
+  </div>
+</header>
+
+<main id="main">
+<section class="section container">
+  <div class="prose">
+    <h1>About</h1>
+    <p>
+      There is no product here, no company, and no story to tell yet. This site
+      exists so that the moment there is one, none of the groundwork has to be
+      argued about first.
+    </p>
+
+    <h2>What's already decided</h2>
+    <p>
+      A handful of choices are baked in, chosen to be the ones least likely to
+      need undoing:
+    </p>
+    <ul>
+      <li><strong>No build step.</strong> Files on disk are the files the browser gets.</li>
+      <li><strong>No dependencies.</strong> The server is Node's <code>http</code> module and roughly seventy lines.</li>
+      <li><strong>No framework.</strong> Adding one later is a choice; removing one is a migration.</li>
+      <li><strong>Tokens over hard-coded values.</strong> The palette has a single source of truth.</li>
+    </ul>
+
+    <h2>What's deliberately missing</h2>
+    <p>
+      Analytics, a contact form, social links, cookie banners, and a
+      content-management layer are all absent. Each of those is a decision that
+      depends on what the site turns out to be, so none of them are pre-empted here.
+    </p>
+
+    <h2>Running it</h2>
+    <pre><code>cd site
+npm start        # http://localhost:4000</code></pre>
+    <p>
+      There is nothing to install first. <code>PORT</code> and <code>HOST</code>
+      are both read from the environment if you need to change them.
+    </p>
+
+    <p class="note">
+      Replace this page's contents once the site has a subject. It is written to
+      be deleted, not extended.
+    </p>
+  </div>
+</section>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <span>Untitled — a starting point.</span>
+    <span>Built with no framework.</span>
+  </div>
+</footer>
+</body>
+</html>

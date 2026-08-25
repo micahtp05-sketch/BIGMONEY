@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Untitled</title>
+<meta name="description" content="A blank website scaffold, waiting on a purpose.">
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='4' fill='%232f5bd8'/></svg>">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<script src="/app.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="/">Untitled</a>
+    <nav class="nav" aria-label="Primary">
+      <a href="/">Home</a>
+      <a href="/about">About</a>
+      <a href="/styleguide">Style guide</a>
+    </nav>
+    <button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch theme">☾</button>
+  </div>
+</header>
+
+<main id="main">
+<section class="hero container">
+  <span class="eyebrow">Nothing here yet</span>
+  <h1>A website with no purpose.</h1>
+  <p class="lede">
+    This is scaffolding, not a product. Every page, colour, and word below is a
+    placeholder held in place until this site is given something to say.
+  </p>
+  <div class="actions">
+    <a class="button" href="/styleguide">See the style guide</a>
+    <a class="button secondary" href="/about">What this is</a>
+  </div>
+</section>
+
+<section class="section container">
+  <div class="grid">
+    <article class="card">
+      <h3>No dependencies</h3>
+      <p>
+        Plain HTML, CSS, and JavaScript served by Node's built-in HTTP module.
+        Nothing to install, nothing to upgrade, nothing to remove later.
+      </p>
+    </article>
+    <article class="card">
+      <h3>Tokens first</h3>
+      <p>
+        Colour, type scale, spacing, and shape live as custom properties at the
+        top of <code>styles.css</code>. Change them and the site follows.
+      </p>
+    </article>
+    <article class="card">
+      <h3>Light and dark</h3>
+      <p>
+        Follows the visitor's system setting, with an explicit toggle that wins
+        in both directions and survives a reload.
+      </p>
+    </article>
+    <article class="card">
+      <h3>Accessible by default</h3>
+      <p>
+        Semantic landmarks, a skip link, visible focus rings, and reduced-motion
+        handling are already wired in rather than retrofitted.
+      </p>
+    </article>
+  </div>
+</section>
+
+<section class="section container">
+  <div class="prose">
+    <h2>Giving it a purpose</h2>
+    <p>
+      When this site becomes something, the shape of the work is small and known.
+      Nothing below requires a rewrite.
+    </p>
+    <ol>
+      <li>Replace the name <code>Untitled</code> in each page's header, footer, and <code>&lt;title&gt;</code>.</li>
+      <li>Set the palette and type scale in the token block at the top of <code>styles.css</code>.</li>
+      <li>Rewrite this homepage around the actual thing. Delete the cards you don't need.</li>
+      <li>Add pages as <code>public/&lt;name&gt;.html</code> — they resolve at <code>/&lt;name&gt;</code> automatically.</li>
+    </ol>
+    <p class="note">
+      The style guide page renders the tokens live, so it doubles as a check that
+      a palette change reads correctly in both themes before you commit to it.
+    </p>
+  </div>
+</section>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <span>Untitled — a starting point.</span>
+    <span>Built with no framework.</span>
+  </div>
+</footer>
+</body>
+</html>
