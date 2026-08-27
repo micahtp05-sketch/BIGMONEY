@@ -162,6 +162,9 @@ async function api(path, opts = {}) {
 // ---------------------------------------------------------------- formatting
 
 const cur = () => state.business?.currency ?? 'USD';
+/** Mirrors sellsOnMarketplace() on the server: which models get the fee,
+ *  advertising, conversion and stock questions instead of the customer ones. */
+const sellsOnMarketplace = () => state.business?.model === 'amazon';
 const money = (cents) => new Intl.NumberFormat(undefined, {
   style: 'currency', currency: cur(), maximumFractionDigits: 0,
 }).format(Math.round(cents ?? 0) / 100);
@@ -175,13 +178,13 @@ const toneOf = (score) => score === null ? 'var(--muted)'
 /** Cents from a form field, or null when the owner left it blank — a blank is
  *  "unknown", and the diagnosis treats it very differently from a zero. */
 const centsField = (id) => {
-  const raw = $(id).value.trim();
-  if (raw === '') return null;
+  const raw = $(id)?.value.trim();
+  if (!raw) return null;
   return Math.round(Number(raw) * 100);
 };
 const numField = (id, scale = 1) => {
-  const raw = $(id).value.trim();
-  if (raw === '') return null;
+  const raw = $(id)?.value.trim();
+  if (!raw) return null;
   return Number(raw) * scale;
 };
 
@@ -282,6 +285,7 @@ function renderSetup() {
           <option value="services">Services / agency</option>
           <option value="retail">Retail / hospitality</option>
           <option value="marketplace">Marketplace</option>
+          <option value="amazon">Amazon seller (FBA / Seller Central)</option>
           <option value="other">Something else</option>
         </select></div>
         <div><label for="f-stage">Stage</label><select id="f-stage">
@@ -295,9 +299,10 @@ function renderSetup() {
         <div class="full"><label for="f-goals">What would make the next twelve months a success? One per line, up to five.</label>
           <textarea id="f-goals" placeholder="Reach break-even without raising money&#10;Cut reliance on the wholesale account"></textarea></div>
       </div>
-      <p class="muted" style="font-size:13px">The model and stage decide which benchmarks you are measured against. A 35% gross margin is healthy for retail and alarming for software.</p>
+      <p class="muted" style="font-size:13px">The model and stage decide which benchmarks you are measured against. A 35% gross margin is healthy for retail and alarming for software, and an Amazon seller is judged on what is left after the platform's cut.</p>
       <button class="primary" id="f-save">Create business</button>
-      <button class="act" id="f-demo" style="margin-left:8px">Load the worked example instead</button>
+      <button class="act" id="f-demo" style="margin-left:8px">Load the coffee example</button>
+      <button class="act" id="f-demo-amazon" style="margin-left:8px">Load the Amazon seller example</button>
       <p id="f-err" class="err"></p>
     </div>`;
 
@@ -323,17 +328,19 @@ function renderSetup() {
     } catch (err) { $('f-err').textContent = err.message; }
   });
 
-  $('f-demo').addEventListener('click', async () => {
-    $('f-err').textContent = '';
-    try {
-      const { business } = await api('/api/demo', { method: 'POST' });
-      state.activeId = business.id;
-      state.tab = 'overview';
-      await loadBusinesses();
-      await loadActive();
-      render();
-    } catch (err) { $('f-err').textContent = err.message; }
-  });
+  for (const [id, kind] of [['f-demo', 'coffee'], ['f-demo-amazon', 'amazon']]) {
+    $(id).addEventListener('click', async () => {
+      $('f-err').textContent = '';
+      try {
+        const { business } = await api('/api/demo', { method: 'POST', body: { kind } });
+        state.activeId = business.id;
+        state.tab = 'overview';
+        await loadBusinesses();
+        await loadActive();
+        render();
+      } catch (err) { $('f-err').textContent = err.message; }
+    });
+  }
 }
 
 // ---- overview ------------------------------------------------------------
@@ -372,13 +379,19 @@ function renderOverview() {
       <h2>This month<span class="hint">${esc(d.period)}${prev ? ` vs ${esc(prev.period)}` : ''}</span></h2>
       <div class="tiles">
         ${tile('Revenue', money(m.revenueCents), delta(m.revenueCents, prev?.revenueCents))}
-        ${tile('Gross margin', pct(m.grossMargin), delta(m.grossMargin, prev?.grossMargin, true))}
+        ${tile(sellsOnMarketplace() ? 'Margin after fees' : 'Gross margin', pct(m.grossMargin), delta(m.grossMargin, prev?.grossMargin, true))}
+        ${sellsOnMarketplace() ? tile('Amazon fees', pct(m.platformFeeRatio), delta(m.platformFeeRatio, prev?.platformFeeRatio, true, true)) : ''}
         ${tile('Net profit', money(m.netProfitCents), delta(m.netProfitCents, prev?.netProfitCents))}
         ${tile('Runway', m.runwayMonths === null ? (m.avgBurnCents === 0 ? 'profitable' : '—') : `${num(m.runwayMonths)} mo`, '')}
-        ${tile('Monthly churn', pct(m.churnRate, 1), delta(m.churnRate, prev?.churnRate, true, true))}
-        ${tile('LTV : CAC', m.ltvToCac === null ? '—' : `${num(m.ltvToCac)}x`, '')}
-        ${tile('Revenue / person', m.revenuePerHeadCents === null ? '—' : money(m.revenuePerHeadCents), '')}
-        ${tile('Top customer', pct(m.topCustomerShare), '')}
+        ${sellsOnMarketplace()
+          ? `${tile('TACoS', pct(m.tacos, 1), delta(m.tacos, prev?.tacos, true, true))}
+             ${tile('Conversion', pct(m.unitSessionPercent, 1), delta(m.unitSessionPercent, prev?.unitSessionPercent, true))}
+             ${tile('Days of cover', m.daysOfCover === null ? '—' : `${Math.round(m.daysOfCover)} d`, '')}
+             ${tile('Buy Box', pct(m.buyBoxShare), '')}`
+          : `${tile('Monthly churn', pct(m.churnRate, 1), delta(m.churnRate, prev?.churnRate, true, true))}
+             ${tile('LTV : CAC', m.ltvToCac === null ? '—' : `${num(m.ltvToCac)}x`, '')}
+             ${tile('Revenue / person', m.revenuePerHeadCents === null ? '—' : money(m.revenuePerHeadCents), '')}
+             ${tile('Top customer', pct(m.topCustomerShare), '')}`}
       </div>
       ${sparkline(state.series)}
     </div>
@@ -634,15 +647,27 @@ function renderFigures() {
       <div class="fields">
         <div><label for="s-period">Month</label><input id="s-period" type="month" value="${esc(nextPeriod(last))}"></div>
         <div><label for="s-revenue">Revenue</label><input id="s-revenue" type="number" min="0" step="0.01" placeholder="0.00"></div>
-        <div><label for="s-cogs">Cost of sales</label><input id="s-cogs" type="number" min="0" step="0.01" placeholder="what it cost to deliver"></div>
+        <div><label for="s-cogs">Cost of sales</label><input id="s-cogs" type="number" min="0" step="0.01" placeholder="${sellsOnMarketplace() ? 'landed product cost only' : 'what it cost to deliver'}"></div>
+        ${sellsOnMarketplace()
+          ? `<div><label for="s-fees">Amazon fees</label><input id="s-fees" type="number" min="0" step="0.01" placeholder="referral + FBA + storage"></div>`
+          : ''}
         <div><label for="s-opex">Operating costs</label><input id="s-opex" type="number" min="0" step="0.01" placeholder="payroll, rent, tools, marketing"></div>
         <div><label for="s-cash">Cash at month end</label><input id="s-cash" type="number" min="0" step="0.01" placeholder="optional"></div>
-        <div><label for="s-marketing">Of which marketing</label><input id="s-marketing" type="number" min="0" step="0.01" placeholder="optional"></div>
+        <div><label for="s-marketing">${sellsOnMarketplace() ? 'Ad spend' : 'Of which marketing'}</label><input id="s-marketing" type="number" min="0" step="0.01" placeholder="optional"></div>
+        ${sellsOnMarketplace() ? '' : `
         <div><label for="s-active">Customers at month end</label><input id="s-active" type="number" min="0" placeholder="optional"></div>
         <div><label for="s-new">New customers</label><input id="s-new" type="number" min="0" placeholder="optional"></div>
-        <div><label for="s-churned">Customers lost</label><input id="s-churned" type="number" min="0" placeholder="optional"></div>
+        <div><label for="s-churned">Customers lost</label><input id="s-churned" type="number" min="0" placeholder="optional"></div>`}
         <div><label for="s-headcount">People (full-time equivalent)</label><input id="s-headcount" type="number" min="0" step="0.5" placeholder="optional"></div>
-        <div><label for="s-top">Largest customer, % of revenue</label><input id="s-top" type="number" min="0" max="100" step="1" placeholder="optional"></div>
+        <div><label for="s-top">Largest customer, % of revenue</label><input id="s-top" type="number" min="0" max="100" step="1" placeholder="${sellsOnMarketplace() ? 'only if you also sell wholesale' : 'optional'}"></div>
+        ${sellsOnMarketplace()
+          ? `<div><label for="s-adsales">Ad-attributed sales</label><input id="s-adsales" type="number" min="0" step="0.01" placeholder="for ACoS"></div>
+             <div><label for="s-units">Units sold</label><input id="s-units" type="number" min="0" placeholder="optional"></div>
+             <div><label for="s-returned">Units returned</label><input id="s-returned" type="number" min="0" placeholder="optional"></div>
+             <div><label for="s-sessions">Sessions</label><input id="s-sessions" type="number" min="0" placeholder="from Business Reports"></div>
+             <div><label for="s-onhand">Units on hand</label><input id="s-onhand" type="number" min="0" placeholder="at month end"></div>
+             <div><label for="s-buybox">Buy Box %</label><input id="s-buybox" type="number" min="0" max="100" step="1" placeholder="optional"></div>`
+          : ''}
       </div>
       <p class="muted" style="font-size:13px;margin-top:14px">Leave anything you do not track blank. Blank means "unknown" and simply switches off the checks that need it — it is never read as zero.</p>
       <button class="primary" id="s-save">Save month</button>
@@ -664,7 +689,14 @@ function renderFigures() {
           cogsCents: centsField('s-cogs') ?? 0,
           opexCents: centsField('s-opex') ?? 0,
           cashCents: centsField('s-cash'),
+          platformFeesCents: centsField('s-fees'),
           marketingSpendCents: centsField('s-marketing'),
+          adAttributedSalesCents: centsField('s-adsales'),
+          unitsSold: numField('s-units'),
+          unitsReturned: numField('s-returned'),
+          sessions: numField('s-sessions'),
+          unitsOnHand: numField('s-onhand'),
+          buyBoxShare: numField('s-buybox', 0.01),
           activeCustomers: numField('s-active'),
           newCustomers: numField('s-new'),
           churnedCustomers: numField('s-churned'),
@@ -695,17 +727,22 @@ function historyTable() {
     return `<tr>
       <td>${esc(m.period)}</td>
       <td class="n">${money(m.revenueCents)}</td>
+      ${sellsOnMarketplace() ? `<td class="n">${s.platformFeesCents === null ? '—' : money(s.platformFeesCents)}</td>` : ''}
       <td class="n">${pct(m.grossMargin)}</td>
       <td class="n" style="color:${m.netProfitCents < 0 ? 'var(--crit)' : 'var(--accent)'}">${money(m.netProfitCents)}</td>
       <td class="n">${s.cashCents === null ? '—' : money(s.cashCents)}</td>
-      <td class="n">${s.activeCustomers ?? '—'}</td>
-      <td class="n">${pct(m.churnRate, 1)}</td>
+      <td class="n">${(sellsOnMarketplace() ? s.unitsSold : s.activeCustomers) ?? '—'}</td>
+      <td class="n">${pct(sellsOnMarketplace() ? m.returnRate : m.churnRate, 1)}</td>
       <td><button class="ghost" data-delmonth="${esc(m.period)}">remove</button></td>
     </tr>`;
   }).reverse().join('');
   return `<div class="scroll"><table>
-    <thead><tr><th>Month</th><th class="n">Revenue</th><th class="n">Gross margin</th><th class="n">Net</th>
-      <th class="n">Cash</th><th class="n">Customers</th><th class="n">Churn</th><th></th></tr></thead>
+    <thead><tr><th>Month</th><th class="n">Revenue</th>
+      ${sellsOnMarketplace() ? '<th class="n">Fees</th>' : ''}
+      <th class="n">${sellsOnMarketplace() ? 'Margin after fees' : 'Gross margin'}</th><th class="n">Net</th>
+      <th class="n">Cash</th>
+      <th class="n">${sellsOnMarketplace() ? 'Units' : 'Customers'}</th>
+      <th class="n">${sellsOnMarketplace() ? 'Returns' : 'Churn'}</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 

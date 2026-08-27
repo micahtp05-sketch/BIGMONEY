@@ -13,6 +13,7 @@ export type BusinessModel =
   | 'services'
   | 'retail'
   | 'marketplace'
+  | 'amazon'
   | 'other';
 
 /** Shapes what "good" growth means. An established business growing 2% a month
@@ -48,8 +49,19 @@ export interface MetricsSnapshot {
   period: string;
   /** Revenue recognised in the month. */
   revenueCents: number;
-  /** Direct cost of delivering that revenue — goods, hosting, delivery labour. */
+  /** Direct cost of delivering that revenue — goods, hosting, delivery labour.
+   *  For a marketplace seller this is landed product cost only; the platform's
+   *  cut goes in `platformFeesCents`. */
   cogsCents: number;
+  /**
+   * What the marketplace took: referral commission, fulfilment, storage.
+   *
+   * A separate line rather than part of COGS because it is the number sellers
+   * most often leave out of their own margin maths, and separating it is what
+   * lets the diagnosis say whether a thin margin is a sourcing problem or a
+   * fee problem. It is a cost of sale, so it reduces gross profit either way.
+   */
+  platformFeesCents: number | null;
   /** Everything else: payroll, rent, marketing, tools. */
   opexCents: number;
   /** Cash on hand at month end. Drives runway. */
@@ -64,6 +76,28 @@ export interface MetricsSnapshot {
   headcount: number | null;
   /** Share of this month's revenue from the single largest customer, 0..1. */
   topCustomerShare: number | null;
+
+  // ---- Marketplace selling. Null for businesses that don't sell on one. ----
+
+  /** Units shipped in the month. */
+  unitsSold: number | null;
+  /** Units refunded or returned in the month. */
+  unitsReturned: number | null;
+  /** Product page sessions — the denominator of the conversion rate. */
+  sessions: number | null;
+  /**
+   * Revenue the marketplace attributed to advertising.
+   *
+   * Paired with `marketingSpendCents` (total ad spend) this gives ACoS — how
+   * the advertised half performs — while spend over total revenue gives TACoS,
+   * which is the number that decides whether the business makes money.
+   */
+  adAttributedSalesCents: number | null;
+  /** Units of stock on hand at month end. Drives days of cover. */
+  unitsOnHand: number | null;
+  /** Share of page views where you held the Buy Box, 0..1. */
+  buyBoxShare: number | null;
+
   notes: string | null;
 }
 
@@ -72,11 +106,14 @@ export interface MetricsSnapshot {
 export interface DerivedMetrics {
   period: string;
   revenueCents: number;
+  /** Revenue less product cost **and** marketplace fees. */
   grossProfitCents: number;
   netProfitCents: number;
   grossMargin: number | null;
   netMargin: number | null;
   opexRatio: number | null;
+  /** Marketplace fees over revenue. */
+  platformFeeRatio: number | null;
   /** Trailing 3-month average net cash burn, 0 when profitable on average. */
   avgBurnCents: number | null;
   /** Cash divided by average burn. Null when not burning or cash unknown. */
@@ -95,6 +132,22 @@ export interface DerivedMetrics {
   cacPaybackMonths: number | null;
   revenuePerHeadCents: number | null;
   topCustomerShare: number | null;
+
+  // ---- Marketplace selling ----
+
+  /** Ad spend over ad-attributed sales: how the advertised half performs. */
+  acos: number | null;
+  /** Ad spend over total revenue: what advertising costs the whole business. */
+  tacos: number | null;
+  /** Units sold over sessions — the listing's conversion rate. */
+  unitSessionPercent: number | null;
+  /** Units returned over units sold. */
+  returnRate: number | null;
+  /** Revenue less product cost, fees, and ad spend. What a month actually adds. */
+  contributionCents: number | null;
+  /** Days of stock left at the current sales rate. */
+  daysOfCover: number | null;
+  buyBoxShare: number | null;
 }
 
 export type PillarId = 'profitability' | 'growth' | 'retention' | 'efficiency' | 'resilience';

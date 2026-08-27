@@ -1,4 +1,10 @@
-import { BENCHMARKS, GROWTH_TARGET, MODEL_LABEL } from './benchmarks.ts';
+import {
+  BENCHMARKS,
+  GROWTH_TARGET,
+  MARKETPLACE_BENCHMARKS,
+  MODEL_LABEL,
+  sellsOnMarketplace,
+} from './benchmarks.ts';
 import { derive } from './metrics.ts';
 import type {
   Business,
@@ -24,6 +30,13 @@ const PILLAR_LABEL: Record<PillarId, string> = {
   retention: 'Retention & acquisition',
   efficiency: 'Operating efficiency',
   resilience: 'Resilience',
+};
+
+/** A marketplace seller has no churn to speak of; the same pillar carries the
+ *  advertising and conversion work that decides whether traffic turns into
+ *  orders, so it is named for what it holds. */
+const MARKETPLACE_PILLAR_LABEL: Partial<Record<PillarId, string>> = {
+  retention: 'Advertising & conversion',
 };
 
 const PILLAR_ORDER: PillarId[] = [
@@ -82,6 +95,21 @@ function curve(ratio: number): number {
   return last[1];
 }
 
+/**
+ * Score a measure that can be wrong in both directions — days of stock cover
+ * being the case that matters here. Inside the band is as good as it gets;
+ * outside it, the distance to the nearer edge is scored on the same curve
+ * everything else uses, so a stockout and a warehouse full of dead stock are
+ * comparable numbers rather than two different scales.
+ */
+export function scoreWithinBand(value: number, low: number, high: number): number {
+  if (low <= 0 || high < low) throw new Error('band must be positive and ordered');
+  if (value >= low && value <= high) return 100;
+  return value < low
+    ? scoreAgainst(value, low, 'higher')
+    : scoreAgainst(value, high, 'lower');
+}
+
 export function severityOf(score: number): Severity {
   if (score < 40) return 'critical';
   if (score < 70) return 'warning';
@@ -105,6 +133,8 @@ export function diagnose(business: Business): Diagnosis {
   }
 
   const bm = BENCHMARKS[business.model];
+  const mp = MARKETPLACE_BENCHMARKS;
+  const marketplace = sellsOnMarketplace(business.model);
   const m = derive(business.snapshots);
   const money = moneyFormatter(business.currency);
   const modelLabel = MODEL_LABEL[business.model];
@@ -112,6 +142,19 @@ export function diagnose(business: Business): Diagnosis {
   const findings: Finding[] = [];
   const scores = new Map<PillarId, number[]>(PILLAR_ORDER.map((p) => [p, []]));
   const missing = new Map<PillarId, Set<string>>(PILLAR_ORDER.map((p) => [p, new Set()]));
+
+  // A marketplace seller does not own the customer relationship — the platform
+  // does — so churn, lifetime value and payback are not thin data, they are the
+  // wrong questions. Skipping them keeps them out of the "needs" list too,
+  // where they would read as figures the owner ought to go and find.
+  const skip = new Set<string>(marketplace ? ['churn', 'ltv-to-cac', 'cac-payback'] : []);
+  // Likewise the largest-customer question: a seller shipping to thousands of
+  // anonymous buyers has no answer, and the concentration that does threaten
+  // them — the marketplace itself — gets its own check below. A seller who also
+  // sells wholesale can still fill the figure in, and then the check runs.
+  if (marketplace && business.snapshots.at(-1)!.topCustomerShare === null) {
+    skip.add('customer-concentration');
+  }
 
   function assess(
     spec: {
@@ -127,6 +170,7 @@ export function diagnose(business: Business): Diagnosis {
       severity: Severity,
     ) => { title: string; evidence: string; benchmark: string; pointer: string },
   ): void {
+    if (skip.has(spec.id)) return;
     if (spec.value === null || !Number.isFinite(spec.value)) {
       for (const field of spec.requires) missing.get(spec.pillar)!.add(field);
       return;
@@ -215,9 +259,15 @@ export function diagnose(business: Business): Diagnosis {
         evidence: `Compound monthly change across the last ${Math.min(business.snapshots.length, 4)} months, ending ${m.period}.`,
         benchmark: `~${pct(growthTarget)} a month at the ${business.stage.replace('_', '-')} stage.`,
         pointer: pick(sev, {
-          critical: `Growth stalls for exactly one of three reasons: not enough people hear about you, enough hear but don't buy, or they buy once and don't come back. Measure all three this week — leads or traffic, conversion rate, repeat rate — and compare each to three months ago. One of them moved. Fix that one instead of doing a bit of everything.`,
-          warning: `Find the single channel that produced the most customers last month and ask what stops you from doing twice as much of it. Usually the answer is a specific constraint — budget, time, one person's calendar — and naming it is most of the work.`,
-          ok: `On pace. The risk now is concentration: if most of this came from one channel, one algorithm change takes the whole number with it. Start a second channel while you don't need it.`,
+          critical: marketplace
+            ? `Revenue on a marketplace is sessions times conversion times price, and only one of those three moved. Pull all three for the last three months and find out which — more traffic will not fix a conversion problem, and a price rise will not fix a ranking one. Fix the one that changed before touching the others.`
+            : `Growth stalls for exactly one of three reasons: not enough people hear about you, enough hear but don't buy, or they buy once and don't come back. Measure all three this week — leads or traffic, conversion rate, repeat rate — and compare each to three months ago. One of them moved. Fix that one instead of doing a bit of everything.`,
+          warning: marketplace
+            ? `The cheapest growth here is usually the listing you already have: your best ASIN's conversion rate, applied to the traffic it already gets, is worth more than a new product launch and costs a fortnight instead of a quarter. Rank your ASINs by sessions and fix the one with the worst conversion against its traffic.`
+            : `Find the single channel that produced the most customers last month and ask what stops you from doing twice as much of it. Usually the answer is a specific constraint — budget, time, one person's calendar — and naming it is most of the work.`,
+          ok: marketplace
+            ? `On pace. Watch that the growth is not simply the ad budget rising with it — TACoS holding flat while revenue climbs is the number that says this is real.`
+            : `On pace. The risk now is concentration: if most of this came from one channel, one algorithm change takes the whole number with it. Start a second channel while you don't need it.`,
         }),
       }),
     );
@@ -421,13 +471,184 @@ export function diagnose(business: Business): Diagnosis {
     }),
   );
 
+  // ---- Marketplace selling ------------------------------------------------
+
+  if (marketplace) {
+    assess(
+      {
+        id: 'platform-fee-load',
+        pillar: 'profitability',
+        value: m.platformFeeRatio,
+        target: mp.platformFeeRatio,
+        direction: 'lower',
+        requires: ['marketplace fees'],
+      },
+      (v, sev) => ({
+        title:
+          sev === 'ok'
+            ? `Amazon takes ${pct(v)} of revenue, in the normal range`
+            : `Amazon takes ${pct(v)} of every sale before you pay for the product`,
+        evidence: `${money(business.snapshots.at(-1)!.platformFeesCents ?? 0)} of referral, fulfilment and storage fees on ${money(m.revenueCents)} of revenue.`,
+        benchmark: `~${pct(mp.platformFeeRatio)} once referral and FBA fees are counted.`,
+        pointer: pick(sev, {
+          critical: `Fees this heavy usually mean the product is wrong for FBA rather than the fee schedule being wrong. Pull the fee preview for your three biggest ASINs and look at the fulfilment line per unit against the item's weight and dimensions: one width or height over a tier boundary moves a unit into the next size band and costs more than the referral fee. Re-pack or re-source the worst one, and check whether anything is sitting in long-term storage.`,
+          warning: `Take the top five ASINs by units and work out fee per unit as a share of price. The offenders are almost always the low-price, high-bulk items where the fixed part of the fulfilment fee swamps the margin — those are candidates for a bundle at a higher price point, or for delisting.`,
+          ok: `Your fee load is normal for the category. Re-check it after any packaging change or fee schedule update; both move it without warning.`,
+        }),
+      }),
+    );
+
+    assess(
+      {
+        id: 'tacos',
+        pillar: 'retention',
+        value: m.tacos,
+        target: mp.tacos,
+        direction: 'lower',
+        requires: ['ad spend'],
+      },
+      (v, sev) => ({
+        title:
+          sev === 'ok'
+            ? `Advertising costs ${pct(v)} of revenue`
+            : `Advertising eats ${pct(v)} of total revenue`,
+        evidence:
+          m.acos !== null
+            ? `${money(business.snapshots.at(-1)!.marketingSpendCents ?? 0)} of ad spend against ${money(m.revenueCents)} of total revenue — ACoS on the advertised half is ${pct(m.acos)}.`
+            : `${money(business.snapshots.at(-1)!.marketingSpendCents ?? 0)} of ad spend against ${money(m.revenueCents)} of total revenue.`,
+        benchmark: `TACoS under ${pct(mp.tacos)}; ACoS under ${pct(mp.acos)}.`,
+        pointer: pick(sev, {
+          critical: `At this level advertising is not accelerating the business, it is the business — and it stops the day the budget does. The number to watch is TACoS falling while revenue holds, because that is what organic rank looks like when it is working. Cut the campaigns with no attributed sales in 30 days outright, cap bids on broad match, and move that budget onto the exact-match terms that already convert.`,
+          warning: `Split spend into terms that defend listings you already rank for and terms that are buying new traffic. Defensive spend should be small; if it is not, you are paying to be found by people who searched for you by name.`,
+          ok: `Ad load is sustainable. Track TACoS rather than ACoS from here — ACoS can look excellent while total spend quietly grows against flat revenue.`,
+        }),
+      }),
+    );
+
+    assess(
+      {
+        id: 'unit-session-conversion',
+        pillar: 'retention',
+        value: m.unitSessionPercent,
+        target: mp.unitSessionPercent,
+        direction: 'higher',
+        requires: ['sessions', 'units sold'],
+      },
+      (v, sev) => ({
+        title:
+          sev === 'ok'
+            ? `${pct(v, 1)} of sessions convert to a sale`
+            : `Only ${pct(v, 1)} of sessions turn into an order`,
+        evidence: `${business.snapshots.at(-1)!.unitsSold} units from ${business.snapshots.at(-1)!.sessions} sessions in ${m.period}.`,
+        benchmark: `~${pct(mp.unitSessionPercent)} unit session percentage.`,
+        pointer: pick(sev, {
+          critical: `You are paying for traffic that arrives and leaves, which makes this more expensive than a traffic problem. The order to check: price against the top three competing offers, then the main image on mobile, then whether reviews are under 4 stars or under about fifteen in count. Those three explain most of the gap, and all of them are fixable this week without spending more on ads.`,
+          warning: `Conversion is under the bar, so every extra click costs more than it should. Test one variable at a time on the busiest listing — main image, then title, then price — and give each a fortnight; changing three at once tells you nothing.`,
+          ok: `Conversion is healthy, which is the condition under which spending more on traffic makes sense.`,
+        }),
+      }),
+    );
+
+    assess(
+      {
+        id: 'return-rate',
+        pillar: 'efficiency',
+        value: m.returnRate,
+        target: mp.returnRate,
+        direction: 'lower',
+        requires: ['units returned'],
+      },
+      (v, sev) => ({
+        title:
+          sev === 'ok'
+            ? `${pct(v, 1)} of units come back`
+            : `${pct(v, 1)} of units are returned`,
+        evidence: `${business.snapshots.at(-1)!.unitsReturned} of ${business.snapshots.at(-1)!.unitsSold} units returned in ${m.period}.`,
+        benchmark: `Under ${pct(mp.returnRate)} for most categories.`,
+        pointer: pick(sev, {
+          critical: `Returns at this rate cost you twice — the refunded sale and the fees, which you do not get back in full — and they feed the account health metrics that decide whether you keep selling at all. Read the return reason codes: "item not as described" is a listing problem you can fix today, "defective" is a supplier problem that needs the next purchase order changed, and they need completely different responses.`,
+          warning: `Pull the return reasons by ASIN rather than in aggregate. Returns cluster on one or two products, and the fix is usually a sizing note, a clearer photo, or a corrected specification in the bullets.`,
+          ok: `Returns are within the normal band. Watch the reason mix rather than the rate — a rise in "not as described" leads the rate by a month.`,
+        }),
+      }),
+    );
+
+    // Days of cover is the one measure here that is wrong in both directions.
+    if (m.daysOfCover === null) {
+      missing.get('efficiency')!.add('units on hand');
+    } else {
+      const score = scoreWithinBand(m.daysOfCover, mp.daysOfCoverLow, mp.daysOfCoverHigh);
+      const severity = severityOf(score);
+      const short = m.daysOfCover < mp.daysOfCoverLow;
+      scores.get('efficiency')!.push(score);
+      findings.push({
+        id: 'days-of-cover',
+        pillar: 'efficiency',
+        severity,
+        title:
+          severity === 'ok'
+            ? `${Math.round(m.daysOfCover)} days of stock on hand`
+            : short
+              ? `Only ${Math.round(m.daysOfCover)} days of stock left`
+              : `${Math.round(m.daysOfCover)} days of stock — cash sitting in the warehouse`,
+        evidence: `${business.snapshots.at(-1)!.unitsOnHand} units on hand against ${business.snapshots.at(-1)!.unitsSold} sold in ${m.period}.`,
+        benchmark: `${mp.daysOfCoverLow}–${mp.daysOfCoverHigh} days.`,
+        pointer: short
+          ? `A stockout costs more than the lost sales: rank falls, and the ads you were running keep spending against a listing that cannot convert. Work backwards from your supplier's lead time plus shipping plus the receiving delay — that total is your real reorder point, and it is almost always further out than it feels. Place the order now and set the trigger in writing.`
+          : `Every unit in the warehouse is cash you cannot spend, and past six months it starts attracting long-term storage fees on top. Split the excess: discount or bundle the slow movers to clear them, and cut the next purchase order for anything with more than a quarter of cover rather than repeating the last one out of habit.`,
+      });
+    }
+
+    assess(
+      {
+        id: 'buy-box-share',
+        pillar: 'resilience',
+        value: m.buyBoxShare,
+        target: mp.buyBoxShare,
+        direction: 'higher',
+        requires: ['Buy Box share'],
+      },
+      (v, sev) => ({
+        title:
+          sev === 'ok'
+            ? `You hold the Buy Box on ${pct(v)} of page views`
+            : `You lose the Buy Box on ${pct(1 - v)} of your own page views`,
+        evidence: `Buy Box share of ${pct(v)} in ${m.period}.`,
+        benchmark: `${pct(mp.buyBoxShare)} or better.`,
+        pointer: pick(sev, {
+          critical: `Without the Buy Box the traffic still arrives and someone else takes the order, so this caps everything else on this page. It is one of four things: price against the competing offer, a fulfilment method they can beat, an account health metric out of band, or a stockout. Check them in that order — the first two are same-day fixes, and if the answer is a hijacker on your own listing, it is a brand registry case, not a pricing decision.`,
+          warning: `Losing the Buy Box a fifth of the time is a fifth of your traffic handed to a competitor. Track it daily rather than monthly: it moves with their stock levels and repricing, so a monthly average hides which days you were absent.`,
+          ok: `You own the Buy Box on almost all views, so the traffic you pay for reaches your offer.`,
+        }),
+      }),
+    );
+
+    // Selling through one marketplace is a concentration risk in the same way
+    // a single dominant customer is, and it belongs in the same pillar.
+    if (business.snapshots.at(-1)!.topCustomerShare === null) {
+      findings.push({
+        id: 'channel-concentration',
+        pillar: 'resilience',
+        severity: 'warning',
+        title: 'One marketplace owns the whole business',
+        evidence: `All ${money(m.revenueCents)} of ${m.period} revenue comes through Amazon.`,
+        benchmark: null,
+        pointer: `A suspension, a policy change, or a listing removal is an outage of one hundred percent of revenue, and none of them come with notice. You do not need a second channel making real money, you need one that already works: a shop of your own with the same catalogue, or one other marketplace, running at a few percent. Building it after the suspension letter is too late, and getting the first order elsewhere is most of the work.`,
+      });
+      // Scored rather than flagged, so single-channel risk actually costs the
+      // pillar something. It sits at the top of the warning band: real, and not
+      // on its own a reason to call a working business fragile.
+      scores.get('resilience')!.push(55);
+    }
+  }
+
   // ---- Roll up ------------------------------------------------------------
 
   const pillars: PillarScore[] = PILLAR_ORDER.map((pillar) => {
     const list = scores.get(pillar)!;
     return {
       pillar,
-      label: PILLAR_LABEL[pillar],
+      label: (marketplace ? MARKETPLACE_PILLAR_LABEL[pillar] : undefined) ?? PILLAR_LABEL[pillar],
       score: list.length ? Math.round(list.reduce((a, b) => a + b, 0) / list.length) : null,
       missing: [...missing.get(pillar)!],
       findings: findings
@@ -500,8 +721,10 @@ function pick(severity: Severity, options: Record<Severity, string>): string {
   return options[severity];
 }
 
-function pct(x: number): string {
-  return `${(x * 100).toFixed(x !== 0 && Math.abs(x) < 0.1 ? 1 : 0)}%`;
+/** Percentages carry a decimal only where one changes the reading — a 2.4%
+ *  conversion rate and a 2% one are different businesses. */
+function pct(x: number, dp?: number): string {
+  return `${(x * 100).toFixed(dp ?? (x !== 0 && Math.abs(x) < 0.1 ? 1 : 0))}%`;
 }
 
 function moneyFormatter(currency: string): (cents: number) => string {

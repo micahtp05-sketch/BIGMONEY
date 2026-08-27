@@ -23,12 +23,17 @@ export function derive(history: MetricsSnapshot[]): DerivedMetrics {
   if (!current) throw new Error('derive() needs at least one snapshot');
   const previous = sorted.at(-2) ?? null;
 
-  const grossProfitCents = current.revenueCents - current.cogsCents;
+  // Marketplace fees are a cost of sale, so they come out before gross profit.
+  // A seller whose margin looks fine until the referral and fulfilment lines
+  // land is the single most common way this dashboard earns its keep.
+  const platformFeesCents = current.platformFeesCents ?? 0;
+  const grossProfitCents = current.revenueCents - current.cogsCents - platformFeesCents;
   const netProfitCents = grossProfitCents - current.opexCents;
   const hasRevenue = current.revenueCents > 0;
 
   // Trailing burn, not this month's: a single lumpy month of equipment spend
   // would otherwise report a runway of weeks for a business that is fine.
+  const marketing = current.marketingSpendCents;
   const window = sorted.slice(-BURN_WINDOW);
   const avgNet = window.reduce((sum, s) => sum + net(s), 0) / window.length;
   const avgBurnCents = Math.max(0, Math.round(-avgNet));
@@ -95,6 +100,10 @@ export function derive(history: MetricsSnapshot[]): DerivedMetrics {
     grossMargin,
     netMargin: hasRevenue ? netProfitCents / current.revenueCents : null,
     opexRatio: hasRevenue ? current.opexCents / current.revenueCents : null,
+    platformFeeRatio:
+      hasRevenue && current.platformFeesCents !== null
+        ? current.platformFeesCents / current.revenueCents
+        : null,
     avgBurnCents,
     runwayMonths,
     revenueGrowth,
@@ -113,6 +122,35 @@ export function derive(history: MetricsSnapshot[]): DerivedMetrics {
         ? current.revenueCents / current.headcount
         : null,
     topCustomerShare: current.topCustomerShare,
+
+    acos:
+      marketing !== null &&
+      current.adAttributedSalesCents !== null &&
+      current.adAttributedSalesCents > 0
+        ? marketing / current.adAttributedSalesCents
+        : null,
+    tacos: marketing !== null && hasRevenue ? marketing / current.revenueCents : null,
+    unitSessionPercent:
+      current.unitsSold !== null && current.sessions !== null && current.sessions > 0
+        ? current.unitsSold / current.sessions
+        : null,
+    returnRate:
+      current.unitsReturned !== null && current.unitsSold !== null && current.unitsSold > 0
+        ? current.unitsReturned / current.unitsSold
+        : null,
+    // What the month actually added, once the platform and the ads are paid.
+    contributionCents:
+      current.platformFeesCents !== null && marketing !== null
+        ? grossProfitCents - marketing
+        : null,
+    // Stock left at the current rate of sale. Thirty days is a month of sales,
+    // not a month of calendar — a seller who sells nothing has infinite cover
+    // and no business, so a zero sales month reports null rather than a number.
+    daysOfCover:
+      current.unitsOnHand !== null && current.unitsSold !== null && current.unitsSold > 0
+        ? (current.unitsOnHand / current.unitsSold) * 30
+        : null,
+    buyBoxShare: current.buyBoxShare,
   };
 }
 
@@ -123,5 +161,5 @@ export function deriveSeries(snapshots: MetricsSnapshot[]): DerivedMetrics[] {
 }
 
 function net(s: MetricsSnapshot): number {
-  return s.revenueCents - s.cogsCents - s.opexCents;
+  return s.revenueCents - s.cogsCents - (s.platformFeesCents ?? 0) - s.opexCents;
 }

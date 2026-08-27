@@ -11,7 +11,7 @@ npm install
 cp .env.example .env      # optional — see Configuration
 npm start                 # http://localhost:3000/dashboard
 
-npm test         # 65 tests, no network required
+npm test         # 88 tests, no network required
 npm run typecheck
 ```
 
@@ -37,15 +37,33 @@ From that it derives the ratios that decide whether a business works (gross and 
 
 **No number is invented to fill a gap.** Zero observed churn yields no LTV rather than an infinite one. Customers-at-start comes from last month's closing count, not this month's. The same rule the price estimator follows — no defensible number, no number.
 
+### Selling on Amazon
+
+Pick the **Amazon seller** model and the questions change, because for a marketplace seller most of the standard ones are the wrong questions. You do not own the customer relationship, so churn, lifetime value and payback are not thin data — they are unanswerable, and they are skipped rather than reported as gaps. In their place:
+
+| Check | What it asks |
+|---|---|
+| Fee load | What share of revenue the platform takes in referral, fulfilment and storage. |
+| TACoS | What advertising costs the whole business, not just the advertised half (ACoS is shown beside it). |
+| Unit session percentage | Whether the traffic you pay for converts. |
+| Return rate | What comes back, and what that costs twice over. |
+| Days of cover | Stock on hand at the current sales rate — scored **both ways**, since a stockout and a warehouse full of dead capital are both failures. |
+| Buy Box share | How often you lose your own page views to someone else. |
+| Channel concentration | That one policy decision is an outage of one hundred percent of revenue. |
+
+**Fees come out before gross margin.** They are a cost of sale, so `platformFeesCents` reduces gross profit exactly as product cost does. This is the single most useful thing the Amazon model does: a seller measuring margin before the platform's cut is usually about thirty points more optimistic than their bank account, and separating the two lines is what lets the diagnosis say whether a thin margin is a *sourcing* problem or a *fee* problem. It also means the benchmark looks low — 30% gross margin is healthy for a seller and would be alarming for a direct-to-consumer shop, because they are not measuring the same thing.
+
+Try it with **Load the Amazon seller example**, or `POST /api/demo {"kind":"amazon"}`. It seeds a private-label FBA business that is profitable and squeezed: fees at 34%, advertising at 15% of revenue, 9% conversion, 28 days of cover, and a Buy Box it holds three-quarters of the time.
+
 ### The five pillars
 
 | Pillar | Weight | Checks |
 |---|---|---|
-| Profitability | 25% | gross margin, net margin |
+| Profitability | 25% | gross margin, net margin, plus platform fee load for a seller |
 | Growth | 20% | compound monthly revenue growth vs. stage |
-| Retention & acquisition | 20% | churn, LTV:CAC, CAC payback |
-| Operating efficiency | 15% | opex ratio, revenue per person |
-| Resilience | 20% | runway, customer concentration |
+| Retention & acquisition | 20% | churn, LTV:CAC, CAC payback — for an Amazon seller this pillar is named *Advertising & conversion* and holds TACoS and unit session percentage instead |
+| Operating efficiency | 15% | opex ratio, revenue per person, plus return rate and days of cover for a seller |
+| Resilience | 20% | runway, customer concentration, plus Buy Box share and channel concentration for a seller |
 
 Weights are renormalised over the pillars that could be scored, so an unscored pillar lowers coverage instead of quietly scoring zero.
 
@@ -113,9 +131,9 @@ Money is carried in **minor units (cents) as integers** everywhere, so nothing a
 | `POST /api/businesses/:id/briefing` | Claude's read on what to do first. |
 | `POST · PATCH · DELETE /api/businesses/:id/actions[/:actionId]` | The plan. |
 | `GET · POST · DELETE /api/ideas[/:id]` | The idea refinery. |
-| `POST /api/demo` | Seed the worked example. |
+| `POST /api/demo` | Seed a worked example — `{"kind":"coffee"}` (default) or `{"kind":"amazon"}`. |
 
-`model` is one of `saas`, `ecommerce`, `services`, `retail`, `marketplace`, `other`; `stage` is one of `idea`, `pre_revenue`, `early`, `growth`, `established`. Both choose the benchmarks you are measured against.
+`model` is one of `saas`, `ecommerce`, `services`, `retail`, `marketplace`, `amazon`, `other`; `stage` is one of `idea`, `pre_revenue`, `early`, `growth`, `established`. Both choose the benchmarks you are measured against.
 
 ### Estimator
 
@@ -150,6 +168,7 @@ export interface PriceSource {
 ## Known limitations
 
 - **Single workspace, no accounts.** One JSON document, no authentication, no per-user separation. It is a tool you run for your own businesses, not a service you host for other people's.
+- **The Amazon model reads figures you type, not your Seller Central account.** There is no SP-API integration; the monthly numbers come off your own reports. That is a real limitation and also why it works offline.
 - **Benchmarks are published operating ranges, not your industry's.** They are deliberately mid-range, and `src/business/benchmarks.ts` is meant to be edited when you know better than the table does.
 - **Monthly granularity only.** One row per calendar month; weekly or per-product breakdowns would need a different shape.
 - **The briefing has no memory between months.** Each one is written fresh from the current figures, so it cannot yet tell you that it recommended the same thing last month and nothing moved.
@@ -175,7 +194,7 @@ src/
     fixture.ts         Offline source for tests and local development
   business/
     types.ts           The business domain — one place to look
-    benchmarks.ts      What "good" is, per business model and stage
+    benchmarks.ts      What "good" is, per business model and stage, marketplace bars included
     metrics.ts         Snapshots -> derived ratios, nulls where data is missing
     diagnose.ts        Scoring, findings, and the pointer each one implies
     advisor.ts         Claude briefing: what to do first, and why

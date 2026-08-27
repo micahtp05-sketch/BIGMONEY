@@ -4,7 +4,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { replyWithError } from '../api-errors.ts';
 import { writeBriefing } from './advisor.ts';
-import { demoBusiness } from './demo.ts';
+import { amazonDemoBusiness, demoBusiness } from './demo.ts';
 import { diagnose } from './diagnose.ts';
 import { refineIdea } from './ideas.ts';
 import { deriveSeries, sortSnapshots } from './metrics.ts';
@@ -18,7 +18,7 @@ const nullableCount = z.number().int().min(0).nullable().default(null);
 const BusinessInput = z.object({
   name: z.string().trim().min(1).max(120),
   industry: z.string().trim().max(200).default(''),
-  model: z.enum(['saas', 'ecommerce', 'services', 'retail', 'marketplace', 'other']),
+  model: z.enum(['saas', 'ecommerce', 'services', 'retail', 'marketplace', 'amazon', 'other']),
   stage: z.enum(['idea', 'pre_revenue', 'early', 'growth', 'established']),
   // Three-letter ISO code; used only for display formatting.
   currency: z.string().trim().length(3).toUpperCase().default('USD'),
@@ -31,6 +31,7 @@ const SnapshotInput = z.object({
     .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'period must be a calendar month, e.g. "2026-03"'),
   revenueCents: cents,
   cogsCents: cents,
+  platformFeesCents: nullableCents,
   opexCents: cents,
   cashCents: nullableCents,
   marketingSpendCents: nullableCents,
@@ -39,6 +40,12 @@ const SnapshotInput = z.object({
   activeCustomers: nullableCount,
   headcount: z.number().min(0).max(100_000).nullable().default(null),
   topCustomerShare: z.number().min(0).max(1).nullable().default(null),
+  unitsSold: nullableCount,
+  unitsReturned: nullableCount,
+  sessions: nullableCount,
+  adAttributedSalesCents: nullableCents,
+  unitsOnHand: nullableCount,
+  buyBoxShare: z.number().min(0).max(1).nullable().default(null),
   notes: z.string().trim().max(1000).nullable().default(null),
 });
 
@@ -291,8 +298,13 @@ export function registerBusinessRoutes(app: FastifyInstance, opts: BusinessRoute
 
   /** Seed a worked example so the dashboard can be judged before anyone types
    *  a year of their own figures into it. */
-  app.post('/api/demo', async (_request, reply) => {
-    const business = demoBusiness();
+  app.post('/api/demo', async (request, reply) => {
+    const parsed = z
+      .object({ kind: z.enum(['coffee', 'amazon']).default('coffee') })
+      .safeParse(request.body ?? {});
+    if (!parsed.success) return badRequest(reply, parsed.error);
+
+    const business = parsed.data.kind === 'amazon' ? amazonDemoBusiness() : demoBusiness();
     await store.mutate((ws) => ws.businesses.push(business));
     return reply.code(201).send({ business });
   });

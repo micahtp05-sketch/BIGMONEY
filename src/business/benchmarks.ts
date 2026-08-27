@@ -86,6 +86,27 @@ export const BENCHMARKS: Record<BusinessModel, Benchmarks> = {
     runwayMonths: 12,
     topCustomerShare: 0.2,
   },
+  /**
+   * A marketplace seller — Amazon FBA or Seller Central, and close enough for
+   * eBay or Walmart. Gross margin here is *after* the platform's cut as well
+   * as product cost, which is why the bar looks low against ecommerce: a
+   * seller clearing 30% on that basis is doing well, and one who measures
+   * margin before fees is usually about 30 points more optimistic than the
+   * bank account.
+   */
+  amazon: {
+    grossMargin: 0.3,
+    netMargin: 0.1,
+    opexRatio: 0.2,
+    monthlyChurn: 0.07,
+    ltvToCac: 3,
+    cacPaybackMonths: 6,
+    revenuePerHeadCents: 4_000_000,
+    // Lower than retail on purpose: the other half of a seller's cash is tied
+    // up in stock, and days of cover is what watches that half.
+    runwayMonths: 9,
+    topCustomerShare: 0.2,
+  },
   other: {
     grossMargin: 0.5,
     netMargin: 0.1,
@@ -119,5 +140,48 @@ export const MODEL_LABEL: Record<BusinessModel, string> = {
   services: 'a services business',
   retail: 'a retail business',
   marketplace: 'a marketplace',
+  amazon: 'a marketplace seller',
   other: 'a business like this',
 };
+
+/**
+ * The bars that only exist for a business selling on someone else's
+ * marketplace. Kept apart from `BENCHMARKS` because these checks simply do not
+ * run for a business without a marketplace, and folding empty columns into the
+ * main table would imply they did.
+ */
+export interface MarketplaceBenchmarks {
+  /** Referral + fulfilment + storage over revenue. Lower is better. */
+  platformFeeRatio: number;
+  /** Total ad spend over total revenue. Lower is better. */
+  tacos: number;
+  /** Ad spend over ad-attributed sales. Lower is better. */
+  acos: number;
+  /** Units sold over sessions. Higher is better. */
+  unitSessionPercent: number;
+  /** Units returned over units sold. Lower is better. */
+  returnRate: number;
+  /** Share of page views holding the Buy Box. Higher is better. */
+  buyBoxShare: number;
+  /** Days of stock on hand. Two-sided: too few stocks out, too many ties up
+   *  cash and accrues storage fees. */
+  daysOfCoverLow: number;
+  daysOfCoverHigh: number;
+}
+
+export const MARKETPLACE_BENCHMARKS: MarketplaceBenchmarks = {
+  // 15% referral on most categories, plus fulfilment and storage.
+  platformFeeRatio: 0.3,
+  tacos: 0.1,
+  acos: 0.25,
+  unitSessionPercent: 0.12,
+  returnRate: 0.05,
+  buyBoxShare: 0.9,
+  daysOfCoverLow: 45,
+  daysOfCoverHigh: 90,
+};
+
+/** Business models that sell through a marketplace and get those checks. */
+export function sellsOnMarketplace(model: BusinessModel): boolean {
+  return model === 'amazon';
+}
