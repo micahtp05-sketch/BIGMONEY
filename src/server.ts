@@ -4,17 +4,21 @@ import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import { aggregate } from './aggregate.ts';
+import { replyWithError } from './api-errors.ts';
+import { registerBusinessRoutes } from './business/routes.ts';
+import { WorkspaceStore } from './business/store.ts';
 import { gatherListings, sourcesFromEnv } from './sources/index.ts';
 import type { EstimateResponse } from './types.ts';
-import { RefusalError, identifyItem } from './vision.ts';
+import { identifyItem } from './vision.ts';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const ACCEPTED = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
-export function buildServer() {
+export async function buildServer(opts: { store?: WorkspaceStore } = {}) {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } });
   const anthropic = new Anthropic();
   const sources = sourcesFromEnv();
+  const store = opts.store ?? (await WorkspaceStore.open());
 
   app.register(multipart, { limits: { fileSize: MAX_IMAGE_BYTES, files: 1 } });
   app.register(fastifyStatic, {
@@ -24,7 +28,14 @@ export function buildServer() {
   app.get('/api/health', async () => ({
     ok: true,
     sources: sources.map((s) => s.name),
+    businesses: store.read().businesses.length,
   }));
+
+  // The dashboard is the second half of the product; static serving would only
+  // find it at /dashboard.html, and that is not a URL anyone types twice.
+  app.get('/dashboard', async (_request, reply) => reply.sendFile('dashboard.html'));
+
+  registerBusinessRoutes(app, { store, anthropic });
 
   app.post('/api/estimate', async (request, reply) => {
     const file = await request.file();
@@ -65,22 +76,7 @@ export function buildServer() {
       const body: EstimateResponse = { item, estimate, listings, warnings };
       return reply.send(body);
     } catch (error) {
-      if (error instanceof RefusalError) {
-        return reply.code(422).send({ error: error.message });
-      }
-      if (error instanceof Anthropic.AuthenticationError) {
-        request.log.error({ err: error }, 'Anthropic auth failed');
-        return reply
-          .code(500)
-          .send({ error: 'Server is not configured with valid Claude API credentials.' });
-      }
-      if (error instanceof Anthropic.RateLimitError) {
-        return reply.code(429).send({ error: 'Rate limited upstream. Try again shortly.' });
-      }
-      request.log.error({ err: error }, 'estimate failed');
-      return reply.code(500).send({
-        error: error instanceof Error ? error.message : 'Unexpected failure.',
-      });
+      return replyWithError(request, reply, error, 'estimate');
     }
   });
 
@@ -89,7 +85,7 @@ export function buildServer() {
 
 // Only listen when run directly, so tests can import buildServer().
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const app = buildServer();
+  const app = await buildServer();
   const port = Number(process.env.PORT ?? 3000);
   app.listen({ port, host: '0.0.0.0' }).catch((err) => {
     app.log.error(err);

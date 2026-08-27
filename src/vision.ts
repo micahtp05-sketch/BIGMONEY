@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
+import { RefusalError, withCategory } from './refusal.ts';
 import type { ItemIdentification } from './types.ts';
 
 /**
@@ -62,18 +63,6 @@ export interface VisionOptions {
   hint?: string;
 }
 
-export class RefusalError extends Error {
-  readonly category: string | null | undefined;
-
-  constructor(category: string | null | undefined) {
-    super(
-      `The vision model declined to analyze this image${category ? ` (${category})` : ''}. Try a different photo.`,
-    );
-    this.name = 'RefusalError';
-    this.category = category;
-  }
-}
-
 export async function identifyItem(
   client: Anthropic,
   opts: VisionOptions,
@@ -107,10 +96,13 @@ export async function identifyItem(
     ],
   });
 
-  // Safety classifiers return HTTP 200 with an empty/partial body — reading
-  // parsed_output without this check yields a confusing null dereference.
   if (response.stop_reason === 'refusal') {
-    throw new RefusalError(response.stop_details?.category);
+    const category = response.stop_details?.category;
+    throw new RefusalError(
+      withCategory('The vision model declined to analyze this image', category) +
+        '. Try a different photo.',
+      category,
+    );
   }
   if (response.stop_reason === 'max_tokens') {
     throw new Error('Identification was cut off before completing. Try again.');

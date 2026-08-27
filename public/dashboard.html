@@ -1,0 +1,847 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BIGMONEY — Business Command</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1b1f28; --border: #262b36;
+    --text: #e6e9ef; --muted: #9aa3b2; --accent: #4ade80; --accent-dim: #1c5c37;
+    --warn: #fbbf24; --crit: #f87171; --link: #7dd3fc;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  a { color: var(--link); }
+  header {
+    border-bottom: 1px solid var(--border); background: var(--panel);
+    padding: 14px 20px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+  }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: -0.02em; }
+  header .spacer { flex: 1; }
+  main { max-width: 1080px; margin: 0 auto; padding: 24px 20px 80px; }
+  nav.tabs { display: flex; gap: 4px; margin: 0 0 22px; flex-wrap: wrap; }
+  nav.tabs button {
+    background: none; border: 1px solid transparent; color: var(--muted);
+    padding: 7px 14px; border-radius: 8px; cursor: pointer; font: inherit;
+  }
+  nav.tabs button[aria-selected="true"] {
+    background: var(--panel); border-color: var(--border); color: var(--text);
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 15px; margin: 0 0 14px; letter-spacing: -0.01em; }
+  .card h2 .hint { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 8px; }
+  .grid { display: grid; gap: 16px; }
+  @media (min-width: 780px) { .grid.two { grid-template-columns: 300px 1fr; } }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .tile { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 13px; }
+  .tile span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+  .tile b { font-size: 19px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .tile i { font-style: normal; font-size: 12px; color: var(--muted); margin-left: 6px; }
+  .score { text-align: center; }
+  .score .num { font-size: 46px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
+  .score .of { color: var(--muted); font-size: 13px; }
+  .pillar { margin-bottom: 12px; }
+  .pillar .row { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
+  .pillar .row b { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 3px; }
+  .miss { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .finding { border-left: 3px solid var(--border); padding: 2px 0 2px 14px; margin-bottom: 20px; }
+  .finding.critical { border-color: var(--crit); }
+  .finding.warning { border-color: var(--warn); }
+  .finding.ok { border-color: var(--accent); }
+  .finding h3 { font-size: 14.5px; margin: 0 0 6px; font-weight: 600; }
+  .finding .ev { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+  .finding .pointer { font-size: 14px; margin: 0; }
+  .badge {
+    display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+    padding: 2px 7px; border-radius: 5px; margin-right: 8px; vertical-align: 2px;
+  }
+  .badge.critical { background: #3b1c1c; color: var(--crit); }
+  .badge.warning { background: #3a2f12; color: var(--warn); }
+  .badge.ok { background: #14301f; color: var(--accent); }
+  button.act {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 7px; padding: 6px 11px; font: inherit; font-size: 13px; cursor: pointer;
+  }
+  button.act:hover { border-color: var(--accent); }
+  button.primary {
+    background: var(--accent); color: #06240f; border: 0; border-radius: 8px;
+    padding: 10px 16px; font: 600 14px inherit; cursor: pointer;
+  }
+  button.primary:disabled { background: var(--accent-dim); color: var(--muted); cursor: not-allowed; }
+  button.ghost { background: none; border: 0; color: var(--muted); cursor: pointer; font: inherit; font-size: 13px; }
+  button.ghost:hover { color: var(--crit); }
+  input, select, textarea {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 9px 11px; font: inherit; width: 100%;
+  }
+  textarea { min-height: 110px; resize: vertical; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 0 0 5px; }
+  .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  .fields .full { grid-column: 1 / -1; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .scroll { overflow-x: auto; }
+  .todo { display: flex; gap: 12px; align-items: flex-start; padding: 11px 0; border-bottom: 1px solid var(--border); }
+  .todo:last-child { border-bottom: 0; }
+  .todo.done h4 { text-decoration: line-through; color: var(--muted); }
+  .todo h4 { margin: 0 0 3px; font-size: 14px; font-weight: 600; }
+  .todo p { margin: 0; font-size: 13px; color: var(--muted); }
+  .todo .p1 { color: var(--crit); }
+  .muted { color: var(--muted); }
+  .err { color: var(--crit); }
+  .empty { color: var(--muted); font-size: 14px; }
+  ul.clean { list-style: none; padding: 0; margin: 0; }
+  ul.clean li { padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  ul.clean li:last-child { border-bottom: 0; }
+  .spin { color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>BIGMONEY</h1>
+  <span class="muted" style="font-size:13px">Business command</span>
+  <div class="spacer"></div>
+  <select id="picker" style="width:auto;min-width:190px"></select>
+  <button class="act" id="newBiz">New</button>
+  <a href="/" style="font-size:13px">Price estimator →</a>
+</header>
+
+<main>
+  <nav class="tabs" id="tabs" hidden>
+    <button data-tab="overview" aria-selected="true">Overview</button>
+    <button data-tab="playbook" aria-selected="false">Playbook</button>
+    <button data-tab="plan" aria-selected="false">Plan</button>
+    <button data-tab="figures" aria-selected="false">Figures</button>
+    <button data-tab="ideas" aria-selected="false">Ideas</button>
+  </nav>
+  <div id="view"></div>
+</main>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const view = $('view');
+
+const state = {
+  businesses: [],
+  activeId: localStorage.getItem('bigmoney.activeId'),
+  business: null,
+  diagnosis: null,
+  series: [],
+  briefing: null,
+  ideas: [],
+  tab: 'overview',
+};
+
+// ---------------------------------------------------------------- transport
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: opts.body ? { 'content-type': 'application/json' } : undefined,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const data = res.status === 204 ? {} : await res.json();
+  if (!res.ok) {
+    const detail = data.issues?.map((i) => `${i.path}: ${i.message}`).join('; ');
+    throw new Error(detail || data.error || `Request failed (${res.status})`);
+  }
+  return data;
+}
+
+// ---------------------------------------------------------------- formatting
+
+const cur = () => state.business?.currency ?? 'USD';
+/** Mirrors sellsOnMarketplace() on the server: which models get the fee,
+ *  advertising, conversion and stock questions instead of the customer ones. */
+const sellsOnMarketplace = () => state.business?.model === 'amazon';
+const money = (cents) => new Intl.NumberFormat(undefined, {
+  style: 'currency', currency: cur(), maximumFractionDigits: 0,
+}).format(Math.round(cents ?? 0) / 100);
+const pct = (x, dp = 0) => x === null || x === undefined ? '—' : `${(x * 100).toFixed(dp)}%`;
+const num = (x, dp = 1) => x === null || x === undefined ? '—' : x.toFixed(dp);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const toneOf = (score) => score === null ? 'var(--muted)'
+  : score >= 70 ? 'var(--accent)' : score >= 40 ? 'var(--warn)' : 'var(--crit)';
+
+/** Cents from a form field, or null when the owner left it blank — a blank is
+ *  "unknown", and the diagnosis treats it very differently from a zero. */
+const centsField = (id) => {
+  const raw = $(id)?.value.trim();
+  if (!raw) return null;
+  return Math.round(Number(raw) * 100);
+};
+const numField = (id, scale = 1) => {
+  const raw = $(id)?.value.trim();
+  if (!raw) return null;
+  return Number(raw) * scale;
+};
+
+// ---------------------------------------------------------------- loading
+
+async function loadBusinesses() {
+  const { businesses } = await api('/api/businesses');
+  state.businesses = businesses;
+  if (!businesses.some((b) => b.id === state.activeId)) {
+    state.activeId = businesses[0]?.id ?? null;
+  }
+  renderPicker();
+}
+
+async function loadActive() {
+  state.briefing = null;
+  if (!state.activeId) { state.business = null; state.diagnosis = null; state.series = []; return; }
+  localStorage.setItem('bigmoney.activeId', state.activeId);
+  const { business } = await api(`/api/businesses/${state.activeId}`);
+  state.business = business;
+  if (business.snapshots.length) {
+    const { diagnosis, series } = await api(`/api/businesses/${state.activeId}/diagnosis`);
+    state.diagnosis = diagnosis;
+    state.series = series;
+  } else {
+    state.diagnosis = null;
+    state.series = [];
+  }
+}
+
+async function loadIdeas() {
+  state.ideas = (await api('/api/ideas')).ideas;
+}
+
+// ---------------------------------------------------------------- chrome
+
+function renderPicker() {
+  const picker = $('picker');
+  picker.innerHTML = state.businesses.length
+    ? state.businesses.map((b) =>
+        `<option value="${esc(b.id)}"${b.id === state.activeId ? ' selected' : ''}>${esc(b.name)}${
+          b.overallScore === null ? '' : ` · ${b.overallScore}`}</option>`).join('')
+    : '<option>No businesses yet</option>';
+  picker.disabled = state.businesses.length === 0;
+}
+
+$('picker').addEventListener('change', async (e) => {
+  state.activeId = e.target.value;
+  await loadActive();
+  render();
+});
+
+$('newBiz').addEventListener('click', () => { state.tab = 'new'; render(); });
+
+$('tabs').addEventListener('click', (e) => {
+  const tab = e.target.dataset?.tab;
+  if (!tab) return;
+  state.tab = tab;
+  render();
+});
+
+// ---------------------------------------------------------------- render
+
+function render() {
+  const tabs = $('tabs');
+  tabs.hidden = !state.business;
+  for (const b of tabs.querySelectorAll('button')) {
+    b.setAttribute('aria-selected', String(b.dataset.tab === state.tab));
+  }
+
+  if (state.tab === 'new' || (!state.business && state.businesses.length === 0)) {
+    return renderSetup();
+  }
+  if (!state.business) return;
+
+  switch (state.tab) {
+    case 'playbook': return renderPlaybook();
+    case 'plan': return renderPlan();
+    case 'figures': return renderFigures();
+    case 'ideas': return renderIdeas();
+    default: return renderOverview();
+  }
+}
+
+// ---- setup ---------------------------------------------------------------
+
+function renderSetup() {
+  view.innerHTML = `
+    <div class="card">
+      <h2>Set up a business<span class="hint">two minutes, then add a month of figures</span></h2>
+      <div class="fields">
+        <div class="full"><label for="f-name">Name</label><input id="f-name" placeholder="Northbeam Coffee"></div>
+        <div class="full"><label for="f-industry">What it does</label>
+          <input id="f-industry" placeholder="specialty coffee subscriptions, direct to consumer"></div>
+        <div><label for="f-model">Business model</label><select id="f-model">
+          <option value="saas">Software / subscription</option>
+          <option value="ecommerce">Ecommerce</option>
+          <option value="services">Services / agency</option>
+          <option value="retail">Retail / hospitality</option>
+          <option value="marketplace">Marketplace</option>
+          <option value="amazon">Amazon seller (FBA / Seller Central)</option>
+          <option value="other">Something else</option>
+        </select></div>
+        <div><label for="f-stage">Stage</label><select id="f-stage">
+          <option value="idea">Idea</option>
+          <option value="pre_revenue">Pre-revenue</option>
+          <option value="early" selected>Early revenue</option>
+          <option value="growth">Growing</option>
+          <option value="established">Established</option>
+        </select></div>
+        <div><label for="f-currency">Currency</label><input id="f-currency" value="USD" maxlength="3"></div>
+        <div class="full"><label for="f-goals">What would make the next twelve months a success? One per line, up to five.</label>
+          <textarea id="f-goals" placeholder="Reach break-even without raising money&#10;Cut reliance on the wholesale account"></textarea></div>
+      </div>
+      <p class="muted" style="font-size:13px">The model and stage decide which benchmarks you are measured against. A 35% gross margin is healthy for retail and alarming for software, and an Amazon seller is judged on what is left after the platform's cut.</p>
+      <button class="primary" id="f-save">Create business</button>
+      <button class="act" id="f-demo" style="margin-left:8px">Load the coffee example</button>
+      <button class="act" id="f-demo-amazon" style="margin-left:8px">Load the Amazon seller example</button>
+      <p id="f-err" class="err"></p>
+    </div>`;
+
+  $('f-save').addEventListener('click', async () => {
+    $('f-err').textContent = '';
+    try {
+      const { business } = await api('/api/businesses', {
+        method: 'POST',
+        body: {
+          name: $('f-name').value,
+          industry: $('f-industry').value,
+          model: $('f-model').value,
+          stage: $('f-stage').value,
+          currency: $('f-currency').value || 'USD',
+          goals: $('f-goals').value.split('\n').map((g) => g.trim()).filter(Boolean).slice(0, 5),
+        },
+      });
+      state.activeId = business.id;
+      state.tab = 'figures';
+      await loadBusinesses();
+      await loadActive();
+      render();
+    } catch (err) { $('f-err').textContent = err.message; }
+  });
+
+  for (const [id, kind] of [['f-demo', 'coffee'], ['f-demo-amazon', 'amazon']]) {
+    $(id).addEventListener('click', async () => {
+      $('f-err').textContent = '';
+      try {
+        const { business } = await api('/api/demo', { method: 'POST', body: { kind } });
+        state.activeId = business.id;
+        state.tab = 'overview';
+        await loadBusinesses();
+        await loadActive();
+        render();
+      } catch (err) { $('f-err').textContent = err.message; }
+    });
+  }
+}
+
+// ---- overview ------------------------------------------------------------
+
+function renderOverview() {
+  if (!state.diagnosis) {
+    view.innerHTML = `<div class="card">
+      <h2>${esc(state.business.name)}</h2>
+      <p class="empty">No figures yet. Add one month — revenue, cost of sales, and operating costs are enough to start — and the whole picture appears.</p>
+      <button class="primary" id="go-figures">Add a month</button>
+    </div>`;
+    $('go-figures').addEventListener('click', () => { state.tab = 'figures'; render(); });
+    return;
+  }
+
+  const d = state.diagnosis;
+  const m = d.metrics;
+  const prev = state.series.at(-2) ?? null;
+
+  view.innerHTML = `
+    <div class="grid two">
+      <div class="card score">
+        <h2 style="text-align:left">Health<span class="hint">${esc(d.period)}</span></h2>
+        ${ring(d.overallScore)}
+        <div class="num" style="color:${toneOf(d.overallScore)}">${d.overallScore ?? '—'}</div>
+        <div class="of">out of 100 · ${Math.round(d.coverage * 100)}% of checks have data</div>
+      </div>
+      <div class="card">
+        <h2>What this says</h2>
+        <p style="margin:0 0 16px">${esc(d.summary)}</p>
+        ${d.pillars.map(pillarRow).join('')}
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>This month<span class="hint">${esc(d.period)}${prev ? ` vs ${esc(prev.period)}` : ''}</span></h2>
+      <div class="tiles">
+        ${tile('Revenue', money(m.revenueCents), delta(m.revenueCents, prev?.revenueCents))}
+        ${tile(sellsOnMarketplace() ? 'Margin after fees' : 'Gross margin', pct(m.grossMargin), delta(m.grossMargin, prev?.grossMargin, true))}
+        ${sellsOnMarketplace() ? tile('Amazon fees', pct(m.platformFeeRatio), delta(m.platformFeeRatio, prev?.platformFeeRatio, true, true)) : ''}
+        ${tile('Net profit', money(m.netProfitCents), delta(m.netProfitCents, prev?.netProfitCents))}
+        ${tile('Runway', m.runwayMonths === null ? (m.avgBurnCents === 0 ? 'profitable' : '—') : `${num(m.runwayMonths)} mo`, '')}
+        ${sellsOnMarketplace()
+          ? `${tile('TACoS', pct(m.tacos, 1), delta(m.tacos, prev?.tacos, true, true))}
+             ${tile('Conversion', pct(m.unitSessionPercent, 1), delta(m.unitSessionPercent, prev?.unitSessionPercent, true))}
+             ${tile('Days of cover', m.daysOfCover === null ? '—' : `${Math.round(m.daysOfCover)} d`, '')}
+             ${tile('Buy Box', pct(m.buyBoxShare), '')}`
+          : `${tile('Monthly churn', pct(m.churnRate, 1), delta(m.churnRate, prev?.churnRate, true, true))}
+             ${tile('LTV : CAC', m.ltvToCac === null ? '—' : `${num(m.ltvToCac)}x`, '')}
+             ${tile('Revenue / person', m.revenuePerHeadCents === null ? '—' : money(m.revenuePerHeadCents), '')}
+             ${tile('Top customer', pct(m.topCustomerShare), '')}`}
+      </div>
+      ${sparkline(state.series)}
+    </div>
+
+    <div class="card">
+      <h2>Do these first<span class="hint">worst first, from the checks that failed</span></h2>
+      ${d.priorities.length
+        ? d.priorities.slice(0, 3).map((f) => findingHtml(f, true)).join('')
+        : '<p class="empty">Nothing is below its benchmark. Open the playbook to see what is holding, and what would break it.</p>'}
+      ${d.priorities.length > 3 ? `<button class="act" id="more">See all ${d.priorities.length} in the playbook</button>` : ''}
+    </div>
+
+    <div class="card">
+      <h2>Briefing<span class="hint">Claude reads your figures and says what to do first</span></h2>
+      <div id="briefing">${state.briefing ? briefingHtml(state.briefing) :
+        '<p class="empty">The scores above are computed from your numbers. A briefing adds the judgement they cannot: what to do first, and what it is really a symptom of.</p>'}</div>
+      <button class="primary" id="brief">${state.briefing ? 'Write it again' : 'Write this month’s briefing'}</button>
+    </div>`;
+
+  $('more')?.addEventListener('click', () => { state.tab = 'playbook'; render(); });
+  wireAddToPlan();
+  $('brief').addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    $('briefing').innerHTML = '<p class="spin">Reading your figures…</p>';
+    try {
+      const { briefing } = await api(`/api/businesses/${state.business.id}/briefing`, { method: 'POST' });
+      state.briefing = briefing;
+      $('briefing').innerHTML = briefingHtml(briefing);
+      wireAddToPlan();
+    } catch (err) {
+      $('briefing').innerHTML = `<p class="err">${esc(err.message)}</p>`;
+    } finally { e.target.disabled = false; }
+  });
+}
+
+function ring(score) {
+  const r = 52, c = 2 * Math.PI * r;
+  const filled = score === null ? 0 : (score / 100) * c;
+  return `<svg viewBox="0 0 128 128" width="128" height="128" style="margin:4px auto 8px;display:block">
+    <circle cx="64" cy="64" r="${r}" fill="none" stroke="var(--border)" stroke-width="10"></circle>
+    <circle cx="64" cy="64" r="${r}" fill="none" stroke="${toneOf(score)}" stroke-width="10"
+      stroke-linecap="round" stroke-dasharray="${filled} ${c}" transform="rotate(-90 64 64)"></circle>
+  </svg>`;
+}
+
+function pillarRow(p) {
+  return `<div class="pillar">
+    <div class="row"><span>${esc(p.label)}</span><b style="color:${toneOf(p.score)}">${p.score ?? '—'}</b></div>
+    <div class="bar"><i style="width:${p.score ?? 0}%;background:${toneOf(p.score)}"></i></div>
+    ${p.score === null && p.missing.length
+      ? `<div class="miss">Needs: ${p.missing.map(esc).join(', ')}</div>` : ''}
+  </div>`;
+}
+
+function tile(label, value, note) {
+  return `<div class="tile"><span>${esc(label)}</span><b>${esc(value)}</b>${note ? `<i>${note}</i>` : ''}</div>`;
+}
+
+/** Month-over-month arrow. `inverse` marks measures where down is good. */
+function delta(now, before, ratio = false, inverse = false) {
+  if (now === null || now === undefined || before === null || before === undefined) return '';
+  const diff = now - before;
+  const shown = ratio
+    ? `${(Math.abs(diff) * 100).toFixed(1)}pp`
+    : `${Math.abs(before) > 0 ? (Math.abs(diff / before) * 100).toFixed(0) : '—'}%`;
+  // A change that rounds away to nothing is flat, not a tiny green arrow.
+  if (diff === 0 || /^0(\.0)?(pp|%)$/.test(shown)) return 'flat';
+  const good = inverse ? diff < 0 : diff > 0;
+  return `<span style="color:${good ? 'var(--accent)' : 'var(--crit)'}">${diff > 0 ? '▲' : '▼'} ${shown}</span>`;
+}
+
+function sparkline(series) {
+  if (series.length < 2) return '';
+  const values = series.map((s) => s.revenueCents);
+  const max = Math.max(...values), min = Math.min(...values, 0);
+  const w = 100, h = 26;
+  const points = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * w;
+    const y = h - ((v - min) / (max - min || 1)) * h;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(' ');
+  return `<div style="margin-top:16px">
+    <div class="miss">Revenue, ${esc(series[0].period)} → ${esc(series.at(-1).period)}</div>
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:56px;margin-top:6px">
+      <polyline points="${points}" fill="none" stroke="var(--accent)" stroke-width="1" vector-effect="non-scaling-stroke"></polyline>
+    </svg>
+  </div>`;
+}
+
+// ---- playbook ------------------------------------------------------------
+
+function renderPlaybook() {
+  if (!state.diagnosis) { state.tab = 'overview'; return render(); }
+  const d = state.diagnosis;
+  view.innerHTML = d.pillars.map((p) => `
+    <div class="card">
+      <h2>${esc(p.label)}<span class="hint">${p.score === null ? 'not scored yet' : `${p.score} / 100`}</span></h2>
+      ${p.findings.length ? p.findings.map((f) => findingHtml(f, true)).join('') : ''}
+      ${p.missing.length ? `<p class="miss">Add ${p.missing.map(esc).join(', ')} on the Figures tab to unlock the rest of this section.</p>` : ''}
+      ${!p.findings.length && !p.missing.length ? '<p class="empty">Nothing to report.</p>' : ''}
+    </div>`).join('');
+  wireAddToPlan();
+}
+
+function findingHtml(f, withButton) {
+  return `<div class="finding ${esc(f.severity)}">
+    <h3><span class="badge ${esc(f.severity)}">${esc(f.severity)}</span>${esc(f.title)}</h3>
+    <p class="ev">${esc(f.evidence)}${f.benchmark ? ` · Benchmark: ${esc(f.benchmark)}` : ''}</p>
+    <p class="pointer">${esc(f.pointer)}</p>
+    ${withButton ? `<button class="act" style="margin-top:10px" data-plan="${esc(f.id)}">Add to plan</button>` : ''}
+  </div>`;
+}
+
+function wireAddToPlan() {
+  for (const button of view.querySelectorAll('[data-plan]')) {
+    button.addEventListener('click', async () => {
+      const finding = state.diagnosis?.pillars.flatMap((p) => p.findings)
+        .find((f) => f.id === button.dataset.plan);
+      if (!finding) return;
+      button.disabled = true;
+      try {
+        await api(`/api/businesses/${state.business.id}/actions`, {
+          method: 'POST',
+          body: {
+            title: finding.title,
+            detail: finding.pointer,
+            priority: finding.severity === 'critical' ? 1 : finding.severity === 'warning' ? 2 : 3,
+            sourceFindingId: finding.id,
+          },
+        });
+        button.textContent = 'Added to plan ✓';
+        await loadActive();
+      } catch (err) { button.textContent = err.message; button.disabled = false; }
+    });
+  }
+  for (const button of view.querySelectorAll('[data-plan-move]')) {
+    button.addEventListener('click', async () => {
+      const move = state.briefing?.topMoves[Number(button.dataset.planMove)];
+      if (!move) return;
+      button.disabled = true;
+      try {
+        await api(`/api/businesses/${state.business.id}/actions`, {
+          method: 'POST',
+          body: { title: move.title, detail: `${move.why}\n\nFirst step: ${move.firstStep}`, priority: 1 },
+        });
+        button.textContent = 'Added to plan ✓';
+        await loadActive();
+      } catch (err) { button.textContent = err.message; button.disabled = false; }
+    });
+  }
+}
+
+function briefingHtml(b) {
+  return `
+    <p style="font-size:16px;margin:0 0 18px">${esc(b.headline)}</p>
+    ${b.topMoves.map((m, i) => `
+      <div class="finding ${i === 0 ? 'critical' : 'warning'}">
+        <h3>${i + 1}. ${esc(m.title)}</h3>
+        <p class="ev">${esc(m.impact)} impact · about ${esc(String(m.effortDays))} days</p>
+        <p class="pointer">${esc(m.why)}</p>
+        <p class="pointer" style="margin-top:8px"><b>First step:</b> ${esc(m.firstStep)}</p>
+        <button class="act" style="margin-top:10px" data-plan-move="${i}">Add to plan</button>
+      </div>`).join('')}
+    ${b.stopDoing.length ? `<h2 style="margin-top:20px">Stop doing</h2><ul class="clean">${
+      b.stopDoing.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}
+    <h2 style="margin-top:20px">Biggest risk</h2>
+    <p style="margin:0 0 6px">${esc(b.biggestRisk.risk)}</p>
+    <p class="ev muted" style="font-size:13px">Early warning: ${esc(b.biggestRisk.earlyWarningSign)}</p>
+    <p style="margin:6px 0 0">${esc(b.biggestRisk.mitigation)}</p>
+    <h2 style="margin-top:20px">Answer this next</h2>
+    <p style="margin:0">${esc(b.questionToAnswer)}</p>
+    ${b.dataGaps.length ? `<p class="miss" style="margin-top:16px">Would sharpen this: ${
+      b.dataGaps.map(esc).join('; ')}</p>` : ''}`;
+}
+
+// ---- plan ----------------------------------------------------------------
+
+function renderPlan() {
+  const actions = [...state.business.actions].sort((a, b) =>
+    (a.status === 'done') - (b.status === 'done') || a.priority - b.priority);
+
+  view.innerHTML = `
+    <div class="card">
+      <h2>Plan<span class="hint">${actions.filter((a) => a.status !== 'done').length} open</span></h2>
+      ${actions.length ? actions.map(todoHtml).join('') : '<p class="empty">Nothing here yet. Add items from the playbook, or write your own below.</p>'}
+    </div>
+    <div class="card">
+      <h2>Add an item</h2>
+      <div class="fields">
+        <div class="full"><label for="a-title">What needs doing</label><input id="a-title" placeholder="Call the ten customers who cancelled in March"></div>
+        <div class="full"><label for="a-detail">Detail</label><input id="a-detail" placeholder="Optional"></div>
+        <div><label for="a-priority">Priority</label><select id="a-priority">
+          <option value="1">1 — now</option><option value="2" selected>2 — soon</option><option value="3">3 — when there is room</option>
+        </select></div>
+      </div>
+      <button class="primary" id="a-add" style="margin-top:12px">Add</button>
+      <p id="a-err" class="err"></p>
+    </div>`;
+
+  for (const el of view.querySelectorAll('[data-toggle]')) {
+    el.addEventListener('change', async () => {
+      await api(`/api/businesses/${state.business.id}/actions/${el.dataset.toggle}`, {
+        method: 'PATCH',
+        body: { status: el.checked ? 'done' : 'open' },
+      });
+      await loadActive();
+      render();
+    });
+  }
+  for (const el of view.querySelectorAll('[data-del]')) {
+    el.addEventListener('click', async () => {
+      await api(`/api/businesses/${state.business.id}/actions/${el.dataset.del}`, { method: 'DELETE' });
+      await loadActive();
+      render();
+    });
+  }
+  $('a-add').addEventListener('click', async () => {
+    $('a-err').textContent = '';
+    try {
+      await api(`/api/businesses/${state.business.id}/actions`, {
+        method: 'POST',
+        body: {
+          title: $('a-title').value,
+          detail: $('a-detail').value || null,
+          priority: Number($('a-priority').value),
+        },
+      });
+      await loadActive();
+      render();
+    } catch (err) { $('a-err').textContent = err.message; }
+  });
+}
+
+function todoHtml(a) {
+  return `<div class="todo ${a.status === 'done' ? 'done' : ''}">
+    <input type="checkbox" data-toggle="${esc(a.id)}" ${a.status === 'done' ? 'checked' : ''} style="width:auto;margin-top:3px">
+    <div style="flex:1">
+      <h4>${esc(a.title)}</h4>
+      ${a.detail ? `<p>${esc(a.detail)}</p>` : ''}
+    </div>
+    <span class="muted ${a.priority === 1 ? 'p1' : ''}" style="font-size:12px">P${a.priority}</span>
+    <button class="ghost" data-del="${esc(a.id)}">remove</button>
+  </div>`;
+}
+
+// ---- figures -------------------------------------------------------------
+
+function renderFigures() {
+  const last = state.business.snapshots.at(-1);
+  view.innerHTML = `
+    <div class="card">
+      <h2>Add or correct a month<span class="hint">re-submitting a month replaces it</span></h2>
+      <div class="fields">
+        <div><label for="s-period">Month</label><input id="s-period" type="month" value="${esc(nextPeriod(last))}"></div>
+        <div><label for="s-revenue">Revenue</label><input id="s-revenue" type="number" min="0" step="0.01" placeholder="0.00"></div>
+        <div><label for="s-cogs">Cost of sales</label><input id="s-cogs" type="number" min="0" step="0.01" placeholder="${sellsOnMarketplace() ? 'landed product cost only' : 'what it cost to deliver'}"></div>
+        ${sellsOnMarketplace()
+          ? `<div><label for="s-fees">Amazon fees</label><input id="s-fees" type="number" min="0" step="0.01" placeholder="referral + FBA + storage"></div>`
+          : ''}
+        <div><label for="s-opex">Operating costs</label><input id="s-opex" type="number" min="0" step="0.01" placeholder="payroll, rent, tools, marketing"></div>
+        <div><label for="s-cash">Cash at month end</label><input id="s-cash" type="number" min="0" step="0.01" placeholder="optional"></div>
+        <div><label for="s-marketing">${sellsOnMarketplace() ? 'Ad spend' : 'Of which marketing'}</label><input id="s-marketing" type="number" min="0" step="0.01" placeholder="optional"></div>
+        ${sellsOnMarketplace() ? '' : `
+        <div><label for="s-active">Customers at month end</label><input id="s-active" type="number" min="0" placeholder="optional"></div>
+        <div><label for="s-new">New customers</label><input id="s-new" type="number" min="0" placeholder="optional"></div>
+        <div><label for="s-churned">Customers lost</label><input id="s-churned" type="number" min="0" placeholder="optional"></div>`}
+        <div><label for="s-headcount">People (full-time equivalent)</label><input id="s-headcount" type="number" min="0" step="0.5" placeholder="optional"></div>
+        <div><label for="s-top">Largest customer, % of revenue</label><input id="s-top" type="number" min="0" max="100" step="1" placeholder="${sellsOnMarketplace() ? 'only if you also sell wholesale' : 'optional'}"></div>
+        ${sellsOnMarketplace()
+          ? `<div><label for="s-adsales">Ad-attributed sales</label><input id="s-adsales" type="number" min="0" step="0.01" placeholder="for ACoS"></div>
+             <div><label for="s-units">Units sold</label><input id="s-units" type="number" min="0" placeholder="optional"></div>
+             <div><label for="s-returned">Units returned</label><input id="s-returned" type="number" min="0" placeholder="optional"></div>
+             <div><label for="s-sessions">Sessions</label><input id="s-sessions" type="number" min="0" placeholder="from Business Reports"></div>
+             <div><label for="s-onhand">Units on hand</label><input id="s-onhand" type="number" min="0" placeholder="at month end"></div>
+             <div><label for="s-buybox">Buy Box %</label><input id="s-buybox" type="number" min="0" max="100" step="1" placeholder="optional"></div>`
+          : ''}
+      </div>
+      <p class="muted" style="font-size:13px;margin-top:14px">Leave anything you do not track blank. Blank means "unknown" and simply switches off the checks that need it — it is never read as zero.</p>
+      <button class="primary" id="s-save">Save month</button>
+      <p id="s-err" class="err"></p>
+    </div>
+    <div class="card">
+      <h2>History<span class="hint">${state.business.snapshots.length} month${state.business.snapshots.length === 1 ? '' : 's'}</span></h2>
+      ${state.business.snapshots.length ? historyTable() : '<p class="empty">No months recorded yet.</p>'}
+    </div>`;
+
+  $('s-save').addEventListener('click', async () => {
+    $('s-err').textContent = '';
+    try {
+      await api(`/api/businesses/${state.business.id}/snapshots`, {
+        method: 'PUT',
+        body: {
+          period: $('s-period').value,
+          revenueCents: centsField('s-revenue') ?? 0,
+          cogsCents: centsField('s-cogs') ?? 0,
+          opexCents: centsField('s-opex') ?? 0,
+          cashCents: centsField('s-cash'),
+          platformFeesCents: centsField('s-fees'),
+          marketingSpendCents: centsField('s-marketing'),
+          adAttributedSalesCents: centsField('s-adsales'),
+          unitsSold: numField('s-units'),
+          unitsReturned: numField('s-returned'),
+          sessions: numField('s-sessions'),
+          unitsOnHand: numField('s-onhand'),
+          buyBoxShare: numField('s-buybox', 0.01),
+          activeCustomers: numField('s-active'),
+          newCustomers: numField('s-new'),
+          churnedCustomers: numField('s-churned'),
+          headcount: numField('s-headcount'),
+          topCustomerShare: numField('s-top', 0.01),
+        },
+      });
+      await loadBusinesses();
+      await loadActive();
+      state.tab = 'overview';
+      render();
+    } catch (err) { $('s-err').textContent = err.message; }
+  });
+
+  for (const el of view.querySelectorAll('[data-delmonth]')) {
+    el.addEventListener('click', async () => {
+      await api(`/api/businesses/${state.business.id}/snapshots/${el.dataset.delmonth}`, { method: 'DELETE' });
+      await loadBusinesses();
+      await loadActive();
+      render();
+    });
+  }
+}
+
+function historyTable() {
+  const rows = state.series.map((m, i) => {
+    const s = state.business.snapshots[i];
+    return `<tr>
+      <td>${esc(m.period)}</td>
+      <td class="n">${money(m.revenueCents)}</td>
+      ${sellsOnMarketplace() ? `<td class="n">${s.platformFeesCents === null ? '—' : money(s.platformFeesCents)}</td>` : ''}
+      <td class="n">${pct(m.grossMargin)}</td>
+      <td class="n" style="color:${m.netProfitCents < 0 ? 'var(--crit)' : 'var(--accent)'}">${money(m.netProfitCents)}</td>
+      <td class="n">${s.cashCents === null ? '—' : money(s.cashCents)}</td>
+      <td class="n">${(sellsOnMarketplace() ? s.unitsSold : s.activeCustomers) ?? '—'}</td>
+      <td class="n">${pct(sellsOnMarketplace() ? m.returnRate : m.churnRate, 1)}</td>
+      <td><button class="ghost" data-delmonth="${esc(m.period)}">remove</button></td>
+    </tr>`;
+  }).reverse().join('');
+  return `<div class="scroll"><table>
+    <thead><tr><th>Month</th><th class="n">Revenue</th>
+      ${sellsOnMarketplace() ? '<th class="n">Fees</th>' : ''}
+      <th class="n">${sellsOnMarketplace() ? 'Margin after fees' : 'Gross margin'}</th><th class="n">Net</th>
+      <th class="n">Cash</th>
+      <th class="n">${sellsOnMarketplace() ? 'Units' : 'Customers'}</th>
+      <th class="n">${sellsOnMarketplace() ? 'Returns' : 'Churn'}</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
+
+/** Default the form to the month after the last one recorded, or last month. */
+function nextPeriod(last) {
+  const base = last ? new Date(`${last.period}-01T00:00:00Z`) : new Date();
+  const d = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + (last ? 1 : -1), 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+// ---- ideas ---------------------------------------------------------------
+
+function renderIdeas() {
+  view.innerHTML = `
+    <div class="card">
+      <h2>Idea refinery<span class="hint">sharpened, scored, and given one cheap test</span></h2>
+      <textarea id="i-raw" placeholder="Describe the idea the way you would say it out loud. Rough is fine — the point of this is to make it specific."></textarea>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap">
+        <button class="primary" id="i-go">Pressure-test it</button>
+        <label style="margin:0"><input type="checkbox" id="i-attach" checked style="width:auto"> judge it against ${esc(state.business.name)}</label>
+      </div>
+      <p id="i-err" class="err"></p>
+    </div>
+    <div id="i-list">${state.ideas.map(ideaHtml).join('') || '<p class="empty">No ideas reviewed yet.</p>'}</div>`;
+
+  $('i-go').addEventListener('click', async (e) => {
+    $('i-err').textContent = '';
+    e.target.disabled = true;
+    e.target.textContent = 'Thinking…';
+    try {
+      await api('/api/ideas', {
+        method: 'POST',
+        body: {
+          raw: $('i-raw').value,
+          businessId: $('i-attach').checked ? state.business.id : null,
+        },
+      });
+      $('i-raw').value = '';
+      await loadIdeas();
+      render();
+    } catch (err) {
+      $('i-err').textContent = err.message;
+    } finally {
+      e.target.disabled = false;
+      e.target.textContent = 'Pressure-test it';
+    }
+  });
+
+  for (const el of view.querySelectorAll('[data-delidea]')) {
+    el.addEventListener('click', async () => {
+      await api(`/api/ideas/${el.dataset.delidea}`, { method: 'DELETE' });
+      await loadIdeas();
+      render();
+    });
+  }
+}
+
+function ideaHtml(idea) {
+  const r = idea.review;
+  if (!r) return '';
+  const tone = r.verdict === 'promising' ? 'var(--accent)' : r.verdict === 'needs_work' ? 'var(--warn)' : 'var(--crit)';
+  return `<div class="card">
+    <h2>${esc(r.sharpened.oneLiner)}
+      <span class="hint" style="color:${tone}">${esc(r.verdict.replace('_', ' '))} · ${r.overall}/10</span></h2>
+    <div class="tiles" style="margin-bottom:16px">
+      ${Object.entries(r.scores).map(([k, v]) => `<div class="tile">
+        <span>${esc(k.replace(/([A-Z])/g, ' $1').toLowerCase())}</span>
+        <b style="color:${v >= 7 ? 'var(--accent)' : v >= 5 ? 'var(--warn)' : 'var(--crit)'}">${v}</b>
+        <div class="bar" style="margin-top:6px"><i style="width:${v * 10}%;background:${v >= 7 ? 'var(--accent)' : v >= 5 ? 'var(--warn)' : 'var(--crit)'}"></i></div>
+      </div>`).join('')}
+    </div>
+    <ul class="clean">
+      <li><b>Customer</b><br>${esc(r.sharpened.customer)}</li>
+      <li><b>Problem</b><br>${esc(r.sharpened.problem)}</li>
+      <li><b>Solution</b><br>${esc(r.sharpened.solution)}</li>
+      <li><b>Start here</b><br>${esc(r.sharpened.wedge)}</li>
+      <li><b>Riskiest assumption</b><br>${esc(r.riskiestAssumption)}</li>
+      <li><b>Cheapest test</b><br>${esc(r.cheapestTest.test)}<br>
+        <span class="muted">${esc(r.cheapestTest.timeboxDays)} days · ${esc(r.cheapestTest.costEstimate)} · Stop if: ${esc(r.cheapestTest.killCriterion)}</span></li>
+      <li><b>What would make it big</b><br>${esc(r.whatWouldMakeThisBig)}</li>
+    </ul>
+    <h2 style="margin-top:18px">Next two weeks</h2>
+    <ol style="margin:0;padding-left:20px">${r.nextSteps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
+    <details style="margin-top:14px"><summary class="muted" style="cursor:pointer;font-size:13px">As you wrote it</summary>
+      <p class="muted" style="font-size:13px;white-space:pre-wrap">${esc(idea.raw)}</p></details>
+    <button class="ghost" data-delidea="${esc(idea.id)}" style="margin-top:10px">remove</button>
+  </div>`;
+}
+
+// ---------------------------------------------------------------- boot
+
+try {
+  await loadBusinesses();
+  await loadActive();
+  await loadIdeas();
+  render();
+} catch (err) {
+  view.innerHTML = `<div class="card err">${esc(err.message)}</div>`;
+}
+</script>
+</body>
+</html>
