@@ -404,6 +404,10 @@ function messageCard(post) {
 
   return el('div', { class: 'msg' },
     who(post.author, post.createdAt, post.authorTopics),
+    // A chat line's title is derived from its own first words, so showing it
+    // would just repeat the message. A planned get-together has a real title,
+    // and it is the most important line on the card.
+    post.meetup ? el('h2', { style: 'margin:8px 0 0; font-size:19px', text: post.title }) : null,
     post.meetup ? el('p', { class: 'row', style: 'margin:8px 0 0' },
       el('span', { class: 'tag when', text: `${when(post.meetup.startsAt)} · ${post.meetup.rsvps.length} coming` })) : null,
     el('p', { class: 'body', text: post.body }),
@@ -1008,7 +1012,31 @@ function viewJoin() {
 
 // ------------------------------------------------------------------ routing
 
+/**
+ * Render whatever the hash says.
+ *
+ * Serialised deliberately. Views fetch before they paint, so two overlapping
+ * calls — a navigation and a live update arriving together — used to race, and
+ * whichever finished last won. That put people back on the category page a
+ * moment after they posted. Only one render runs at a time now, and anything
+ * asked for while one is in flight causes exactly one more afterwards, by
+ * which point the hash is settled.
+ */
+let rendering = false;
+let renderAgain = false;
+
 async function route() {
+  if (rendering) { renderAgain = true; return; }
+  rendering = true;
+  try {
+    await renderRoute();
+  } finally {
+    rendering = false;
+    if (renderAgain) { renderAgain = false; route(); }
+  }
+}
+
+async function renderRoute() {
   const hash = window.location.hash || '#/';
   renderNav();
   try {
