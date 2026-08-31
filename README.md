@@ -129,9 +129,12 @@ navigable).
   Where a skill matches a channel topic, replies carry a *"says they know plumbing"*
   chip. Nothing is verified, and the UI never claims otherwise — see
   [Why expertise works this way](#why-expertise-works-this-way).
-- **Meetups.** A meetup *is* a thread, with a time, a place, and RSVPs. Past capacity
-  people join a waitlist rather than being turned away. `/api/community/meetups` is the
-  cross-channel "what's on".
+- **Meetups.** A meetup *is* a thread, with a time and RSVPs — and deliberately **no
+  location field at all**. Past capacity people join a waitlist rather than being turned
+  away. `/api/community/meetups` is the cross-channel "what's on".
+- **Private messages, only around a meetup.** When somebody says they are coming, a
+  channel opens between them and the host, and that is where the address goes. See
+  [Why a meetup has no address](#why-a-meetup-has-no-address).
 - **Presence and waves.** An opt-in *open to chat right now* flag puts you on the
   members page, and any member can send a wave — one per person per day, so it can
   never become a way to pester.
@@ -156,6 +159,9 @@ DELETE /threads/:id                author only
 POST   /threads/:id/replies
 POST   /threads/:id/accept         {replyId} — asker only, null to unmark
 POST   /threads/:id/rsvp           toggle
+GET    /threads/:id/messages       one private channel (?guest=<id> for the host)
+POST   /threads/:id/messages       {body, guest?} — host to a guest, or guest to host
+GET    /threads/:id/message-channels   host only: one entry per person coming
 POST   /replies/:id/helpful        toggle    DELETE /replies/:id
 GET    /meetups                    upcoming, across every channel
 GET    /people                     ?open=1&skill=plumbing
@@ -177,7 +183,26 @@ wording, next to the answer where it can be weighed), and how many times an aske
 marked one of their answers as the one that worked. Credit follows the mark, so
 un-marking takes the point back.
 
-**Why public-only, with no direct messages.** A platform whose whole point is
+**Why a meetup has no address.** A meetup's location is the most dangerous thing this
+platform could publish. Hosts write their own homes into it — the demo data used to say
+"14 Mill Lane, Riverside", because that is exactly what somebody hosting a supper
+writes — and a public page keeps it forever, for anyone, including people who never
+had any intention of coming. So Commons stores no address anywhere. The host tells each
+guest where to come, in a channel that opens when that guest says they are coming.
+
+That channel is the one private space in Commons, and it is scoped as narrowly as it
+can be: it exists only for a (meetup, guest) pair, it has exactly two people in it, and
+sending requires that the guest is currently coming. Every read is authorised on the
+server against both halves — naming somebody else's channel is refused rather than
+answered emptily, so it cannot be used to probe who is going. Cancelling closes the
+channel to new messages but keeps the history, so either side can still report what was
+said.
+
+This is a real softening of the rule below, made deliberately: a private channel is a
+place abuse can happen unseen. It is bounded to a meetup rather than opened across the
+whole site, and it buys back something worth more — no home addresses on a public page.
+
+**Why otherwise public-only, with no direct messages.** A platform whose whole point is
 reaching isolated people is exactly the platform a predator would want private
 channels on. Everything here is in the open, and the one private-ish primitive — a
 wave — carries a short note, is rate-limited to once per person per day, and cannot

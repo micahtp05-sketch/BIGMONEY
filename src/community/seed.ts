@@ -70,7 +70,7 @@ export const SEED_CHANNELS: SeedChannel[] = [
     slug: 'meetups',
     name: 'Meetups',
     kind: 'social',
-    description: 'Walks, coffee, meals. Post a time and place.',
+    description: 'Walks, coffee, meals. Post a time to meet.',
     topics: ['meetups', 'walking', 'coffee', 'meals'],
   },
 ];

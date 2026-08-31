@@ -28,6 +28,8 @@ One word per row — do not invent a third.
 | waitlist | waiting list |
 | moderation / report / "pending review" | "Report a problem" / "We are checking this" |
 | meetup | get-together |
+| private message / DM | message |
+| address / location / venue | where to come |
 | handle | username |
 | display name | your name |
 | bio / "About you" | "A bit about you" |

@@ -75,15 +75,47 @@ export interface Session {
   expiresAt: number;
 }
 
-/** A meetup lives on a thread rather than in its own table — it *is* the post. */
+/**
+ * A meetup lives on a thread rather than in its own table — it *is* the post.
+ *
+ * There is deliberately no location field. A meetup's address is the most
+ * dangerous thing this platform could publish: hosts write their own homes into
+ * it, and a public page keeps that forever. So Commons stores no address at
+ * all. The host tells each guest where to come, in the private channel that
+ * opens when that guest says they are coming.
+ */
 export interface MeetupDetails {
   /** Epoch ms. */
   startsAt: number;
-  place: string;
   /** 0 means no limit. */
   capacity: number;
   /** User ids, in RSVP order. Past `capacity` they are the waitlist. */
   rsvps: string[];
+}
+
+/**
+ * One message between a meetup's host and one person coming to it.
+ *
+ * This is the only private channel in Commons, and it is deliberately not a
+ * general direct-message system: a channel exists only for a (meetup, guest)
+ * pair, only while that guest is coming, and only ever has two people in it.
+ * Every read is authorised against both of those facts on the server.
+ */
+export interface MeetupMessage {
+  id: string;
+  /** The meetup thread this belongs to. */
+  threadId: string;
+  /** The meetup's host — one half of the channel. */
+  hostId: string;
+  /** The person coming — the other half. */
+  guestId: string;
+  /** Which of the two wrote it. Always hostId or guestId. */
+  authorId: string;
+  body: string;
+  createdAt: number;
+  readAt: number | null;
+  reportedBy: string[];
+  hidden: boolean;
 }
 
 /**
@@ -153,6 +185,7 @@ export interface CommunityData {
   threads: Thread[];
   replies: Reply[];
   waves: Wave[];
+  meetupMessages: MeetupMessage[];
 }
 
 /** Server-sent event payloads. One union so the client can switch exhaustively. */
@@ -161,4 +194,5 @@ export type CommunityEvent =
   | { type: 'thread.updated'; channelId: string; threadId: string }
   | { type: 'reply.created'; channelId: string; threadId: string; replyId: string }
   | { type: 'presence.changed'; userId: string; openToChat: boolean }
-  | { type: 'wave.sent'; toUserId: string };
+  | { type: 'wave.sent'; toUserId: string }
+  | { type: 'meetup.message'; threadId: string; toUserId: string };

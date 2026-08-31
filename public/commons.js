@@ -203,8 +203,13 @@ function renderNav() {
 // -------------------------------------------------------------------- views
 
 const view = () => document.getElementById('view');
+/** replaceChildren stringifies null, so every variadic call goes through here. */
+function replaceKids(host, ...nodes) {
+  host.replaceChildren(...nodes.flat().filter(Boolean));
+}
+
 function show(...nodes) {
-  view().replaceChildren(...nodes.flat().filter(Boolean));
+  replaceKids(view(), ...nodes);
   window.scrollTo(0, 0);
 }
 
@@ -452,13 +457,12 @@ function viewPlan(slug) {
   const title = el('input', { type: 'text', id: 'g-title', maxlength: 140 });
   const body = el('textarea', { id: 'g-body' });
   const startsAt = el('input', { type: 'datetime-local', id: 'g-when' });
-  const place = el('input', { type: 'text', id: 'g-where', maxlength: 120 });
   const capacity = el('input', { type: 'number', id: 'g-many', min: '0', value: '0' });
   const note = el('p', { style: 'margin:0' });
 
   const send = el('button', { class: 'primary', text: 'Post it' });
   send.addEventListener('click', async () => {
-    if (!title.value.trim() || !body.value.trim() || !startsAt.value || !place.value.trim()) {
+    if (!title.value.trim() || !body.value.trim() || !startsAt.value) {
       note.replaceChildren(el('span', { class: 'err', text: 'Please fill in every box.' }));
       return;
     }
@@ -471,7 +475,6 @@ function viewPlan(slug) {
           body: body.value.trim(),
           meetup: {
             startsAt: new Date(startsAt.value).getTime(),
-            place: place.value.trim(),
             capacity: Number(capacity.value) || 0,
           },
         },
@@ -491,9 +494,8 @@ function viewPlan(slug) {
       el('label', { class: 'field' }, el('span', { class: 'lab', text: 'What is it' }), title),
       el('label', { class: 'field' }, el('span', { class: 'lab', text: 'More detail' }), body),
       el('label', { class: 'field' }, el('span', { class: 'lab', text: 'When' }), startsAt),
-      el('label', { class: 'field' },
-        el('span', { class: 'lab', text: 'Where' }),
-        el('span', { class: 'help', text: 'A public place is usually best.' }), place),
+      el('p', { class: 'hint', style: 'margin:-6px 0 16px',
+        text: 'You tell each person where to come, privately, once they say they are coming. Commons never shows an address on the page.' }),
       el('label', { class: 'field' },
         el('span', { class: 'lab', text: 'How many people can come' }),
         el('span', { class: 'help', text: 'Put 0 for no limit.' }), capacity),
@@ -542,6 +544,7 @@ async function viewPost(id) {
   }
   for (const reply of replies) parts.push(answerNode(thread, reply));
   parts.push(answerForm(thread));
+  if (thread.meetup) parts.push(meetupMessages(thread));
   show(parts);
 }
 
@@ -648,7 +651,6 @@ function meetupBox(thread, rsvps) {
   const full = meetup.capacity > 0 && meetup.rsvps.length >= meetup.capacity && !thread.viewerRsvpd;
   return el('div', { class: 'card', style: 'margin-top:14px' },
     el('p', { style: 'font-weight:700; margin:0', text: when(meetup.startsAt) }),
-    el('p', { style: 'margin:2px 0', text: meetup.place }),
     el('p', { class: 'hint', style: 'margin:0 0 12px',
       text: `${meetup.rsvps.length} coming${meetup.capacity ? `, room for ${meetup.capacity}` : ''}` }),
     state.me
@@ -671,7 +673,114 @@ function meetupBox(thread, rsvps) {
             text: meetup.capacity > 0 && i >= meetup.capacity ? `${p.displayName} (waiting)` : p.displayName,
           })))
       : null,
+    state.me
+      ? el('p', { class: 'hint', style: 'margin:14px 0 0', text: thread.viewerIsAuthor
+          ? 'Tell each person where to come in the private messages below.'
+          : thread.viewerRsvpd
+            ? 'The host will send you the details privately.'
+            : 'Say you are coming and the host will send you the details privately.' })
+      : null,
   );
+}
+
+/**
+ * The private side of a get-together.
+ *
+ * The host sees one conversation per person coming; a guest sees only their
+ * own. This is the only private channel in Commons, and the server checks both
+ * halves of it on every read — the client just draws what it is given.
+ */
+function meetupMessages(thread) {
+  if (!state.me) return null;
+  const host = thread.viewerIsAuthor;
+  if (!host && !thread.viewerRsvpd) return null;
+
+  const box = el('div', { class: 'card', style: 'margin-top:18px' },
+    el('h2', { style: 'margin:0 0 6px', text: host ? 'Private messages' : `Messages with ${thread.author.displayName}` }),
+    el('p', { class: 'hint', style: 'margin:0 0 14px', text: host
+      ? 'Only you and that person can read these. This is where you send the address.'
+      : 'Only you and the host can read these.' }),
+  );
+  const body = el('div');
+  box.append(body);
+
+  if (host) {
+    api(`/threads/${thread.id}/message-channels`)
+      .then(({ channels }) => {
+        if (!channels.length) {
+          body.replaceChildren(el('p', { class: 'hint', text: 'Nobody is coming yet.' }));
+          return;
+        }
+        body.replaceChildren(...channels.map((c) => el('button', {
+          class: 'post',
+          onclick: () => openConversation(thread, c.guest.id, body, c.guest.displayName),
+        },
+          el('span', { class: 't', text: c.guest.displayName }),
+          el('span', { class: 'who' },
+            el('span', { text: c.count === 1 ? '1 message' : `${c.count} messages` }),
+            c.unread ? el('span', { class: 'tag knows', text: `${c.unread} new` }) : null,
+            c.lastAt ? el('span', { text: ago(c.lastAt) }) : el('span', { text: 'Not started' })),
+        )));
+      })
+      .catch((error) => body.replaceChildren(el('p', { class: 'err', text: error.message })));
+  } else {
+    openConversation(thread, state.me.id, body, thread.author.displayName);
+  }
+  return box;
+}
+
+function openConversation(thread, guestId, host, withName) {
+  host.replaceChildren(el('p', { class: 'hint', text: 'Loading…' }));
+  const url = `/threads/${thread.id}/messages${thread.viewerIsAuthor ? `?guest=${encodeURIComponent(guestId)}` : ''}`;
+
+  api(url).then((data) => {
+    const list = data.messages.length
+      ? el('div', { class: 'chat' }, ...data.messages.map((m) => el('div', { class: 'msg' },
+          el('p', { class: 'who' },
+            el('span', { style: 'font-weight:600', text: m.viewerIsAuthor ? 'You' : (m.author?.displayName ?? 'Someone who has left') }),
+            el('span', { text: ago(m.createdAt) })),
+          el('p', { class: 'body', text: m.body }),
+          m.viewerIsAuthor ? null : el('div', { class: 'row', style: 'margin-top:8px' }, reportButton('message', m.id)),
+        )))
+      : el('p', { class: 'empty', text: thread.viewerIsAuthor
+          ? 'Nothing yet. Send them the address.'
+          : 'Nothing yet. The host will be in touch.' });
+
+    const field = el('textarea', { id: 'pm', style: 'min-height:90px' });
+    const send = el('button', { id: 'pm-send', class: 'primary', text: 'Send' });
+    send.addEventListener('click', async () => {
+      if (!field.value.trim()) return;
+      send.disabled = true;
+      try {
+        await api(`/threads/${thread.id}/messages`, {
+          method: 'POST',
+          body: thread.viewerIsAuthor
+            ? { body: field.value.trim(), guest: guestId }
+            : { body: field.value.trim() },
+        });
+        field.value = '';
+        openConversation(thread, guestId, host, withName);
+      } catch (error) {
+        say(error.message);
+      } finally { send.disabled = false; }
+    });
+
+    // Falsy children are dropped here for the same reason show() drops them:
+    // replaceChildren(null) puts the word "null" on the page.
+    replaceKids(host,
+      thread.viewerIsAuthor
+        ? el('div', { class: 'row', style: 'margin-bottom:12px' },
+            el('button', { class: 'quiet', text: 'Back to everyone', onclick: () => route() }),
+            el('span', { style: 'font-weight:600', text: withName }))
+        : null,
+      list,
+      data.guestIsComing === false
+        ? el('p', { class: 'hint', style: 'margin-top:12px', text: 'They are not coming any more, so this conversation is closed.' })
+        : el('div', { style: 'margin-top:14px' },
+            el('label', { class: 'field' }, el('span', { class: 'lab', text: 'Your message' }), field),
+            send),
+    );
+  }).catch((error) => host.replaceChildren(el('p', { class: 'err', text: error.message })));
 }
 
 // ------------------------------------------------------------- other pages
@@ -946,6 +1055,12 @@ function connectStream() {
   });
   stream.addEventListener('presence.changed', () => {
     if (hash() === '#/people') route();
+  });
+  stream.addEventListener('meetup.message', (event) => {
+    const data = JSON.parse(event.data);
+    if (!state.me || data.toUserId !== state.me.id) return;
+    if (hash() === `#/p/${data.threadId}`) route();
+    else say('You have a new private message about a get-together.');
   });
   stream.addEventListener('wave.sent', (event) => {
     const data = JSON.parse(event.data);

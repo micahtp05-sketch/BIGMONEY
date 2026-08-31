@@ -17,7 +17,7 @@ import { EventBus } from './events.ts';
 import { RateLimiter } from './ratelimit.ts';
 import { SEED_CHANNELS } from './seed.ts';
 import { CommunityStore, publicUser } from './store.ts';
-import type { Reply, Thread, User } from './types.ts';
+import type { MeetupMessage, Reply, Thread, User } from './types.ts';
 import { replyView, threadView } from './views.ts';
 
 /** Reports from this many distinct members hide content pending review. */
@@ -37,7 +37,6 @@ const signupSchema = z.object({
 
 const meetupSchema = z.object({
   startsAt: z.number().int().positive(),
-  place: textField(120),
   capacity: z.number().int().min(0).max(500).default(0),
 });
 
@@ -152,7 +151,7 @@ export function communityRoutes(options: CommunityOptions = {}) {
     }
 
     /** Record a report and hide the content once enough distinct people agree. */
-    function report(target: Thread | Reply, reporterId: string): boolean {
+    function report(target: Thread | Reply | MeetupMessage, reporterId: string): boolean {
       if (!target.reportedBy.includes(reporterId)) target.reportedBy.push(reporterId);
       if (target.reportedBy.length >= HIDE_AFTER_REPORTS) target.hidden = true;
       store.touch();
@@ -234,7 +233,10 @@ export function communityRoutes(options: CommunityOptions = {}) {
 
     app.get('/me', async (request) => {
       const user = viewer(request);
-      return { user: user ? publicUser(user) : null };
+      return {
+        user: user ? publicUser(user) : null,
+        unreadMessages: user ? store.unreadMeetupMessages(user.id) : 0,
+      };
     });
 
     app.patch('/me', async (request) => {
@@ -500,6 +502,143 @@ export function communityRoutes(options: CommunityOptions = {}) {
       };
     });
 
+    // ------------------------------------------------- meetup message channels
+
+    /**
+     * Resolve and authorise one private channel.
+     *
+     * A channel is a (meetup, guest) pair with exactly two people in it. The
+     * host may open any of their guests' channels; anybody else may only open
+     * their own. Reading is allowed on identity alone, so that a cancelled
+     * guest keeps the history they may need in order to report it; sending
+     * additionally requires that the guest is currently coming.
+     */
+    function channelFor(thread: Thread, user: User, guestParam?: string) {
+      if (!thread.meetup) throw new HttpError(400, 'That post is not a get-together.');
+      const hostId = thread.authorId;
+
+      if (user.id === hostId) {
+        if (!guestParam) throw new HttpError(400, 'Say which guest you mean.');
+        if (guestParam === hostId) throw new HttpError(400, 'You cannot message yourself.');
+        return { hostId, guestId: guestParam };
+      }
+      // Not the host: the only channel that can be theirs is their own, and
+      // naming somebody else must not reveal whether that channel exists.
+      if (guestParam && guestParam !== user.id) {
+        throw new HttpError(403, 'That is not your conversation.');
+      }
+      return { hostId, guestId: user.id };
+    }
+
+    const isComing = (thread: Thread, userId: string) =>
+      thread.meetup?.rsvps.includes(userId) ?? false;
+
+    function messageView(message: MeetupMessage, viewerId: string) {
+      const author = store.users.get(message.authorId);
+      return {
+        id: message.id,
+        body: message.body,
+        createdAt: message.createdAt,
+        author: author ? publicUser(author) : null,
+        viewerIsAuthor: message.authorId === viewerId,
+      };
+    }
+
+    /** One conversation: the guest's own, or the one the host asked for. */
+    app.get('/threads/:id/messages', async (request) => {
+      const user = requireUser(request);
+      const { id } = z.object({ id: z.string() }).parse(request.params);
+      const query = z.object({ guest: z.string().optional() }).parse(request.query);
+      const thread = threadOr404(id);
+      const { hostId, guestId } = channelFor(thread, user, query.guest);
+
+      // Somebody who never came and never wrote has no conversation to see.
+      if (user.id !== hostId && !isComing(thread, user.id)) {
+        const existing = store.meetupMessagesIn(thread.id, guestId);
+        if (existing.length === 0) throw new HttpError(403, 'Say you are coming first.');
+      }
+
+      const messages = store.meetupMessagesIn(thread.id, guestId);
+      // Mark the other side's messages read on the way out.
+      let touched = false;
+      for (const m of messages) {
+        if (m.authorId !== user.id && m.readAt === null) { m.readAt = Date.now(); touched = true; }
+      }
+      if (touched) store.touch();
+
+      const host = store.users.get(hostId);
+      const guest = store.users.get(guestId);
+      return {
+        threadId: thread.id,
+        host: host ? publicUser(host) : null,
+        guest: guest ? publicUser(guest) : null,
+        viewerIsHost: user.id === hostId,
+        guestIsComing: isComing(thread, guestId),
+        messages: messages.map((m) => messageView(m, user.id)),
+      };
+    });
+
+    app.post('/threads/:id/messages', async (request, reply) => {
+      const user = requireUser(request);
+      limit(user, 'message', 120, 60 * 60 * 1000);
+      const { id } = z.object({ id: z.string() }).parse(request.params);
+      const input = z.object({ body: textField(4000), guest: z.string().optional() }).parse(request.body);
+      const thread = threadOr404(id);
+      if (thread.hidden) throw new HttpError(403, 'This get-together is under review.');
+      const { hostId, guestId } = channelFor(thread, user, input.guest);
+
+      // Sending needs a live channel: the guest has to actually be coming.
+      if (!isComing(thread, guestId)) {
+        throw new HttpError(403, user.id === hostId
+          ? 'They are not coming any more.'
+          : 'Say you are coming first.');
+      }
+
+      const message = store.addMeetupMessage({
+        id: randomUUID(),
+        threadId: thread.id,
+        hostId,
+        guestId,
+        authorId: user.id,
+        body: input.body,
+        createdAt: Date.now(),
+        readAt: null,
+        reportedBy: [],
+        hidden: false,
+      });
+      bus.publish({
+        type: 'meetup.message',
+        threadId: thread.id,
+        toUserId: user.id === hostId ? guestId : hostId,
+      });
+      return reply.code(201).send({ message: messageView(message, user.id) });
+    });
+
+    /** The host's list of conversations — one per person coming. */
+    app.get('/threads/:id/message-channels', async (request) => {
+      const user = requireUser(request);
+      const { id } = z.object({ id: z.string() }).parse(request.params);
+      const thread = threadOr404(id);
+      if (!thread.meetup) throw new HttpError(400, 'That post is not a get-together.');
+      if (thread.authorId !== user.id) throw new HttpError(403, 'Only the host can see this.');
+
+      const channels = thread.meetup.rsvps
+        .filter((guestId) => guestId !== user.id)
+        .map((guestId) => {
+          const guest = store.users.get(guestId);
+          const messages = store.meetupMessagesIn(thread.id, guestId);
+          const last = messages[messages.length - 1];
+          return {
+            guest: guest ? publicUser(guest) : null,
+            count: messages.length,
+            lastAt: last?.createdAt ?? null,
+            unread: messages.filter((m) => m.authorId !== user.id && m.readAt === null).length,
+          };
+        })
+        .filter((c) => c.guest !== null);
+      return { channels };
+    });
+
     /** Upcoming meetups across every channel — the "what's on" view. */
     app.get('/meetups', async (request) => {
       const me = viewer(request);
@@ -620,12 +759,23 @@ export function communityRoutes(options: CommunityOptions = {}) {
       limit(user, 'report', 20, 60 * 60 * 1000);
       const input = z
         .object({
-          kind: z.enum(['thread', 'reply']),
+          kind: z.enum(['thread', 'reply', 'message']),
           id: z.string(),
           reason: z.string().trim().max(280).optional(),
         })
         .parse(request.body);
-      const target = input.kind === 'thread' ? threadOr404(input.id) : replyOr404(input.id);
+      let target: Thread | Reply | MeetupMessage;
+      if (input.kind === 'thread') target = threadOr404(input.id);
+      else if (input.kind === 'reply') target = replyOr404(input.id);
+      else {
+        // A private message is only reportable by the person it was sent to.
+        const message = store.meetupMessages.get(input.id);
+        if (!message) throw new HttpError(404, 'No such message.');
+        if (message.hostId !== user.id && message.guestId !== user.id) {
+          throw new HttpError(403, 'That is not your message.');
+        }
+        target = message;
+      }
       if (target.authorId === user.id) throw new HttpError(400, 'Delete your own post instead.');
       const hidden = report(target, user.id);
       return { ok: true, hidden };

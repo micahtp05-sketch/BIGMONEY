@@ -134,10 +134,64 @@ await step('create a meetup and RSVP state renders', async () => {
   await page.fill('#g-title', 'Sunday morning loop');
   await page.fill('#g-body', 'Slow pace, about an hour.');
   await page.fill('#g-when', new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 16));
-  await page.fill('#g-where', 'Bench by the pond');
   await page.click('button:text("Post it")');
   await page.waitForSelector('button:text("I cannot come")');
   await assertNoPlaceholders('a get-together');
+});
+
+await step('the host sends the address privately and only the guest sees it', async () => {
+  // The host is the signed-in browser user who just created the get-together.
+  const meetupUrl = await page.evaluate(() => location.hash);
+  if (!meetupUrl.startsWith('#/p/')) throw new Error(`expected to be on the get-together, got ${meetupUrl}`);
+  const threadId = meetupUrl.slice(4);
+
+  // A second person says they are coming, which opens their channel.
+  const guest = await browser.newPage();
+  await guest.request.post(`${BASE}/api/community/auth/signup`, {
+    data: { handle: `guest${unique}`, displayName: 'Guest Person', password: 'a-good-long-password' },
+  });
+  await guest.request.post(`${BASE}/api/community/threads/${threadId}/rsvp`);
+
+  // The host opens that conversation and sends the address.
+  await page.reload({ waitUntil: 'networkidle' });
+  // :has-text matches an ancestor by its whole text; :text would resolve to the
+  // inner span rather than the button.
+  await page.waitForSelector('button.post:has-text("Guest Person")');
+  await page.click('button.post:has-text("Guest Person")');
+  await page.waitForSelector('#pm');
+  await page.fill('#pm', 'We are at 14 Mill Lane, the blue door.');
+  // The answer form also has a Send button; target this one exactly.
+  await page.click('#pm-send');
+  await page.waitForSelector('.msg .body:has-text("blue door")');
+  await assertNoPlaceholders("the host's private conversation");
+
+  // The guest sees it on their own page.
+  await guest.goto(`${BASE}/#/p/${threadId}`, { waitUntil: 'networkidle' });
+  await guest.waitForSelector('.msg .body:has-text("blue door")', { timeout: 8000 });
+  // Same check, on the guest's page — this is where the last null slipped through.
+  const strayForGuest = await guest.$$eval('main *', (nodes) =>
+    nodes.flatMap((n) => [...n.childNodes]
+      .filter((c) => c.nodeType === 3 && /^\s*(null|undefined)\s*$/.test(c.textContent))
+      .map(() => n.className || n.tagName)));
+  if (strayForGuest.length) throw new Error(`placeholder text on the guest's page: ${strayForGuest.join(', ')}`);
+
+  // Nobody else does — not even on the page, and not from the API.
+  const outsider = await browser.newPage();
+  await outsider.request.post(`${BASE}/api/community/auth/signup`, {
+    data: { handle: `nosy${unique}`, password: 'a-good-long-password' },
+  });
+  await outsider.goto(`${BASE}/#/p/${threadId}`, { waitUntil: 'networkidle' });
+  await outsider.waitForSelector('main h1');
+  await outsider.waitForTimeout(600);
+  const visible = await outsider.evaluate(() => document.body.innerText);
+  if (visible.includes('Mill Lane')) throw new Error('an outsider can read the address on the page');
+  const probe = await outsider.request.get(`${BASE}/api/community/threads/${threadId}/messages`);
+  if (probe.ok()) {
+    const body = await probe.text();
+    if (body.includes('Mill Lane')) throw new Error('the API handed the address to an outsider');
+  }
+  await guest.close();
+  await outsider.close();
 });
 
 await step("what's on lists the meetup", async () => {

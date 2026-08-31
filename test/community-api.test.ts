@@ -203,7 +203,7 @@ describe('Commons API', () => {
       payload: {
         title: 'Saturday loop round the park',
         body: 'Slow pace, no need to talk.',
-        meetup: { startsAt: Date.now() + 86_400_000, place: 'Bench by the pond', capacity: 2 },
+        meetup: { startsAt: Date.now() + 86_400_000, capacity: 2 },
       },
     });
     assert.equal(created.statusCode, 201, created.body);
@@ -230,7 +230,7 @@ describe('Commons API', () => {
       method: 'POST', url: '/api/community/channels/home-repair/threads', headers: asUser(user.cookie),
       payload: {
         title: 'Boiler party', body: 'no',
-        meetup: { startsAt: Date.now() + 86_400_000, place: 'Here', capacity: 0 },
+        meetup: { startsAt: Date.now() + 86_400_000, capacity: 0 },
       },
     });
     assert.equal(wrongChannel.statusCode, 400);
@@ -239,7 +239,7 @@ describe('Commons API', () => {
       method: 'POST', url: '/api/community/channels/meetups/threads', headers: asUser(user.cookie),
       payload: {
         title: 'Last week', body: 'no',
-        meetup: { startsAt: Date.now() - 86_400_000, place: 'Here', capacity: 0 },
+        meetup: { startsAt: Date.now() - 86_400_000, capacity: 0 },
       },
     });
     assert.equal(inThePast.statusCode, 400);
@@ -421,6 +421,206 @@ describe('Commons API', () => {
     await app.inject({ method: 'POST', url: '/api/community/auth/logout', headers: asUser(user.cookie) });
     const me = await app.inject({ method: 'GET', url: '/api/community/me', headers: asUser(user.cookie) });
     assert.equal(me.json().user, null);
+  });
+});
+
+describe('private meetup messages', () => {
+  let app: FastifyInstance;
+
+  before(async () => { app = await buildApp(); });
+  after(async () => { await app.close(); });
+
+  /** A get-together with a host and one guest who is coming. */
+  async function meetupWithGuest(suffix: string) {
+    const host = await signUp(app, `mhost${suffix}`);
+    const guest = await signUp(app, `mguest${suffix}`);
+    const created = await app.inject({
+      method: 'POST', url: '/api/community/channels/meetups/threads', headers: asUser(host.cookie),
+      payload: {
+        title: 'Sunday walk', body: 'Slow pace.',
+        meetup: { startsAt: Date.now() + 86_400_000, capacity: 0 },
+      },
+    });
+    assert.equal(created.statusCode, 201, created.body);
+    const thread = created.json().thread;
+    await app.inject({ method: 'POST', url: `/api/community/threads/${thread.id}/rsvp`, headers: asUser(guest.cookie) });
+    return { host, guest, thread };
+  }
+
+  it('stores no address on a get-together at all', async () => {
+    const { thread } = await meetupWithGuest('a');
+    assert.equal('place' in thread.meetup, false, 'the meetup must carry no location field');
+    const read = await app.inject({ method: 'GET', url: `/api/community/threads/${thread.id}` });
+    assert.equal('place' in read.json().thread.meetup, false);
+    // And it must not have been quietly kept somewhere else on the payload.
+    assert.equal(JSON.stringify(read.json()).includes('place'), false);
+  });
+
+  it('rejects a location field rather than silently storing it', async () => {
+    const host = await signUp(app, 'sneakyhost');
+    const res = await app.inject({
+      method: 'POST', url: '/api/community/channels/meetups/threads', headers: asUser(host.cookie),
+      payload: {
+        title: 'Supper', body: 'Come round.',
+        meetup: { startsAt: Date.now() + 86_400_000, capacity: 0, place: '14 Mill Lane' },
+      },
+    });
+    if (res.statusCode === 201) {
+      assert.equal(JSON.stringify(res.json()).includes('Mill Lane'), false,
+        'an address sent by a client must never come back out');
+    }
+  });
+
+  it('carries a message from host to guest and back', async () => {
+    const { host, guest, thread } = await meetupWithGuest('b');
+
+    const sent = await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/messages`, headers: asUser(host.cookie),
+      payload: { body: 'We meet at 14 Mill Lane, the blue door.', guest: guest.user.id },
+    });
+    assert.equal(sent.statusCode, 201, sent.body);
+
+    const seen = await app.inject({
+      method: 'GET', url: `/api/community/threads/${thread.id}/messages`, headers: asUser(guest.cookie),
+    });
+    assert.equal(seen.json().messages.length, 1);
+    assert.match(seen.json().messages[0].body, /blue door/);
+
+    const back = await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/messages`, headers: asUser(guest.cookie),
+      payload: { body: 'Thank you, see you Sunday.' },
+    });
+    assert.equal(back.statusCode, 201);
+
+    const hostSees = await app.inject({
+      method: 'GET', url: `/api/community/threads/${thread.id}/messages?guest=${guest.user.id}`,
+      headers: asUser(host.cookie),
+    });
+    assert.equal(hostSees.json().messages.length, 2);
+  });
+
+  it('never lets a third party read the conversation', async () => {
+    const { host, guest, thread } = await meetupWithGuest('c');
+    await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/messages`, headers: asUser(host.cookie),
+      payload: { body: 'The address is 14 Mill Lane.', guest: guest.user.id },
+    });
+
+    const nosy = await signUp(app, 'nosyperson');
+    // Even after coming themselves, a different guest gets their own empty
+    // channel — never the one belonging to somebody else.
+    await app.inject({ method: 'POST', url: `/api/community/threads/${thread.id}/rsvp`, headers: asUser(nosy.cookie) });
+
+    const named = await app.inject({
+      method: 'GET', url: `/api/community/threads/${thread.id}/messages?guest=${guest.user.id}`,
+      headers: asUser(nosy.cookie),
+    });
+    assert.equal(named.statusCode, 403, 'naming another guest must be refused');
+
+    const own = await app.inject({
+      method: 'GET', url: `/api/community/threads/${thread.id}/messages`, headers: asUser(nosy.cookie),
+    });
+    assert.equal(own.statusCode, 200);
+    assert.equal(own.json().messages.length, 0, 'their own channel is empty');
+    assert.equal(JSON.stringify(own.json()).includes('Mill Lane'), false);
+  });
+
+  it('refuses a stranger who is not coming', async () => {
+    const { thread } = await meetupWithGuest('d');
+    const stranger = await signUp(app, 'strangerhere');
+    const res = await app.inject({
+      method: 'GET', url: `/api/community/threads/${thread.id}/messages`, headers: asUser(stranger.cookie),
+    });
+    assert.equal(res.statusCode, 403);
+
+    const send = await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/messages`, headers: asUser(stranger.cookie),
+      payload: { body: 'Where is it?' },
+    });
+    assert.equal(send.statusCode, 403);
+  });
+
+  it('refuses anyone signed out', async () => {
+    const { thread } = await meetupWithGuest('e');
+    const res = await app.inject({ method: 'GET', url: `/api/community/threads/${thread.id}/messages` });
+    assert.equal(res.statusCode, 401);
+  });
+
+  it('closes the channel when a guest stops coming, but keeps the history', async () => {
+    const { host, guest, thread } = await meetupWithGuest('f');
+    await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/messages`, headers: asUser(host.cookie),
+      payload: { body: 'See you at the bench.', guest: guest.user.id },
+    });
+    await app.inject({ method: 'POST', url: `/api/community/threads/${thread.id}/rsvp`, headers: asUser(guest.cookie) });
+
+    const send = await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/messages`, headers: asUser(guest.cookie),
+      payload: { body: 'Actually, can I still come?' },
+    });
+    assert.equal(send.statusCode, 403, 'no new messages once they are not coming');
+
+    // History survives, so either side can still report what was said.
+    const still = await app.inject({
+      method: 'GET', url: `/api/community/threads/${thread.id}/messages`, headers: asUser(guest.cookie),
+    });
+    assert.equal(still.statusCode, 200);
+    assert.equal(still.json().messages.length, 1);
+    assert.equal(still.json().guestIsComing, false);
+  });
+
+  it('only the host lists the conversations', async () => {
+    const { host, guest, thread } = await meetupWithGuest('g');
+    const forbidden = await app.inject({
+      method: 'GET', url: `/api/community/threads/${thread.id}/message-channels`, headers: asUser(guest.cookie),
+    });
+    assert.equal(forbidden.statusCode, 403);
+
+    const allowed = await app.inject({
+      method: 'GET', url: `/api/community/threads/${thread.id}/message-channels`, headers: asUser(host.cookie),
+    });
+    assert.equal(allowed.statusCode, 200);
+    assert.equal(allowed.json().channels.length, 1);
+    assert.equal(allowed.json().channels[0].guest.handle, 'mguestg');
+  });
+
+  it('counts unread messages for the person they were sent to', async () => {
+    const { host, guest, thread } = await meetupWithGuest('h');
+    await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/messages`, headers: asUser(host.cookie),
+      payload: { body: 'Details to follow.', guest: guest.user.id },
+    });
+    const before = await app.inject({ method: 'GET', url: '/api/community/me', headers: asUser(guest.cookie) });
+    assert.equal(before.json().unreadMessages, 1);
+    // The sender is never told they have unread mail from themselves.
+    const sender = await app.inject({ method: 'GET', url: '/api/community/me', headers: asUser(host.cookie) });
+    assert.equal(sender.json().unreadMessages, 0);
+
+    await app.inject({ method: 'GET', url: `/api/community/threads/${thread.id}/messages`, headers: asUser(guest.cookie) });
+    const after = await app.inject({ method: 'GET', url: '/api/community/me', headers: asUser(guest.cookie) });
+    assert.equal(after.json().unreadMessages, 0, 'reading the conversation clears it');
+  });
+
+  it('lets the recipient report a message, and nobody else', async () => {
+    const { host, guest, thread } = await meetupWithGuest('i');
+    const sent = await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/messages`, headers: asUser(host.cookie),
+      payload: { body: 'Something unpleasant.', guest: guest.user.id },
+    });
+    const messageId = sent.json().message.id;
+
+    const outsider = await signUp(app, 'outsiderx');
+    const denied = await app.inject({
+      method: 'POST', url: '/api/community/report', headers: asUser(outsider.cookie),
+      payload: { kind: 'message', id: messageId, reason: 'curious' },
+    });
+    assert.equal(denied.statusCode, 403);
+
+    const allowed = await app.inject({
+      method: 'POST', url: '/api/community/report', headers: asUser(guest.cookie),
+      payload: { kind: 'message', id: messageId, reason: 'unpleasant' },
+    });
+    assert.equal(allowed.statusCode, 200);
   });
 });
 

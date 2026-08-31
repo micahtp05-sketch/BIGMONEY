@@ -208,8 +208,8 @@ const walk = (await call('/channels/meetups/threads', {
   method: 'POST', cookie: priya.cookie,
   body: {
     title: 'Saturday morning loop round the park, slow pace',
-    body: 'About an hour, flat the whole way, and there is a café at the end for anyone who wants one. No need to talk if you would rather not — turning up is the whole thing.',
-    meetup: { startsAt: Date.now() + 3 * DAY, place: 'Bench by the pond, Northgate entrance', capacity: 8 },
+    body: 'About an hour, flat the whole way, and there is a café at the end for anyone who wants one. No need to talk if you would rather not — turning up is the whole thing. I will message you the meeting spot.',
+    meetup: { startsAt: Date.now() + 3 * DAY, capacity: 8 },
   },
 })).data.thread;
 for (const who of [joan, dev, mara]) {
@@ -220,8 +220,8 @@ const supper = (await call('/channels/meetups/threads', {
   method: 'POST', cookie: joan.cookie,
   body: {
     title: 'Sunday table at mine — six seats, bring nothing',
-    body: 'I cook far too much for one person and always have. Six chairs, one o\'clock, and I mean it about bringing nothing.',
-    meetup: { startsAt: Date.now() + 5 * DAY, place: '14 Mill Lane, Riverside', capacity: 6 },
+    body: 'I cook far too much for one person and always have. Six chairs, one o\'clock, and I mean it about bringing nothing. Riverside — I will send you the address once you say you are coming.',
+    meetup: { startsAt: Date.now() + 5 * DAY, capacity: 6 },
   },
 })).data.thread;
 for (const who of [eli, priya]) {

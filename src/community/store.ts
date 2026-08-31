@@ -5,6 +5,7 @@ import type {
   Channel,
   CommunityData,
   Credential,
+  MeetupMessage,
   PublicUser,
   Reply,
   Session,
@@ -22,6 +23,7 @@ const EMPTY: CommunityData = {
   threads: [],
   replies: [],
   waves: [],
+  meetupMessages: [],
 };
 
 /**
@@ -40,6 +42,7 @@ export class CommunityStore {
   readonly replies = new Map<string, Reply>();
   readonly sessions = new Map<string, Session>();
   readonly waves = new Map<string, Wave>();
+  readonly meetupMessages = new Map<string, MeetupMessage>();
 
   /** userId -> credential. */
   private readonly credentials = new Map<string, Credential>();
@@ -48,6 +51,8 @@ export class CommunityStore {
   private readonly channelsBySlug = new Map<string, string>();
   private readonly threadsByChannel = new Map<string, string[]>();
   private readonly repliesByThread = new Map<string, string[]>();
+  /** Keyed `threadId:guestId` — one private channel per meetup per guest. */
+  private readonly messagesByChannel = new Map<string, string[]>();
 
   private readonly path: string | null;
   private flushTimer: NodeJS.Timeout | null = null;
@@ -77,6 +82,7 @@ export class CommunityStore {
     for (const t of data.threads) this.indexThread(t);
     for (const r of data.replies) this.indexReply(r);
     for (const w of data.waves) this.waves.set(w.id, w);
+    for (const m of data.meetupMessages ?? []) this.indexMeetupMessage(m);
   }
 
   /** Mark dirty and schedule a flush. Callers use this after every mutation. */
@@ -103,6 +109,7 @@ export class CommunityStore {
       threads: [...this.threads.values()],
       replies: [...this.replies.values()],
       waves: [...this.waves.values()],
+      meetupMessages: [...this.meetupMessages.values()],
     };
     mkdirSync(dirname(this.path), { recursive: true });
     const tmp = `${this.path}.${process.pid}.tmp`;
@@ -270,6 +277,53 @@ export class CommunityStore {
     return [...this.waves.values()]
       .filter((w) => w.toUserId === userId)
       .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  // ----------------------------------------------------------- meetup chat
+
+  /** The key for one private channel: a meetup and the guest it belongs to. */
+  private static channelKey(threadId: string, guestId: string): string {
+    return `${threadId}:${guestId}`;
+  }
+
+  private indexMeetupMessage(message: MeetupMessage): void {
+    this.meetupMessages.set(message.id, message);
+    const key = CommunityStore.channelKey(message.threadId, message.guestId);
+    const list = this.messagesByChannel.get(key);
+    if (list) list.push(message.id);
+    else this.messagesByChannel.set(key, [message.id]);
+  }
+
+  addMeetupMessage(message: MeetupMessage): MeetupMessage {
+    this.indexMeetupMessage(message);
+    this.touch();
+    return message;
+  }
+
+  /**
+   * Every message in one host-to-guest channel, oldest first.
+   *
+   * Callers must have already established that the reader is the host or the
+   * guest — this method does not authorise, it only looks up.
+   */
+  meetupMessagesIn(threadId: string, guestId: string): MeetupMessage[] {
+    const ids = this.messagesByChannel.get(CommunityStore.channelKey(threadId, guestId)) ?? [];
+    const out: MeetupMessage[] = [];
+    for (const id of ids) {
+      const m = this.meetupMessages.get(id);
+      if (m && !m.hidden) out.push(m);
+    }
+    return out.sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  /** Unread messages waiting for one person, across every meetup. */
+  unreadMeetupMessages(userId: string): number {
+    let count = 0;
+    for (const m of this.meetupMessages.values()) {
+      if (m.hidden || m.readAt !== null || m.authorId === userId) continue;
+      if (m.hostId === userId || m.guestId === userId) count += 1;
+    }
+    return count;
   }
 
   /** How recently `from` waved at `to`, or null. Used to rate-limit nudges. */
