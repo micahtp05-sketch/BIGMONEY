@@ -840,6 +840,114 @@ describe('reviews', () => {
   });
 });
 
+describe('ranking providers by their reviews', () => {
+  let app: FastifyInstance;
+
+  before(async () => { app = await buildApp(); });
+  after(async () => { await app.close(); });
+
+  /** Give `handle` some unverifiable reviews with the given ratings. */
+  async function rate(handle: string, ratings: number[], tag: string) {
+    for (const [i, rating] of ratings.entries()) {
+      const reviewer = await signUp(app, `rk${tag}${i}`);
+      const res = await app.inject({
+        method: 'POST', url: `/api/community/people/${handle}/reviews`, headers: asUser(reviewer.cookie),
+        payload: { kind: 'hired', rating, body: 'Some work was done.' },
+      });
+      assert.equal(res.statusCode, 201, res.body);
+    }
+  }
+
+  const scoreOf = (people: { handle: string; reviews: { score: number | null } }[], handle: string) =>
+    people.find((p) => p.handle === handle)?.reviews.score ?? null;
+
+  it('puts a real record above a single glowing review', async () => {
+    await signUp(app, 'steady');
+    await signUp(app, 'oneflatterer');
+    await rate('steady', [4, 4, 5, 4, 5, 4], 'a');
+    await rate('oneflatterer', [5], 'b');
+
+    const people = (await app.inject({ method: 'GET', url: '/api/community/people' })).json().people;
+    const steady = scoreOf(people, 'steady');
+    const single = scoreOf(people, 'oneflatterer');
+    assert.ok(steady !== null && single !== null);
+    assert.ok(steady > single, `six good reviews (${steady}) should outrank one perfect one (${single})`);
+
+    const order = people.map((p: { handle: string }) => p.handle);
+    assert.ok(order.indexOf('steady') < order.indexOf('oneflatterer'));
+  });
+
+  it('counts a checked review for more than an unverifiable one', async () => {
+    const asker = await signUp(app, 'rankasker');
+    const checked = await signUp(app, 'rankchecked');
+    const claimed = await signUp(app, 'rankclaimed');
+
+    const thread = (await app.inject({
+      method: 'POST', url: '/api/community/channels/tech-help/threads', headers: asUser(asker.cookie),
+      payload: { title: 'Wifi drops', body: 'Every evening.' },
+    })).json().thread;
+    await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/replies`, headers: asUser(checked.cookie),
+      payload: { body: 'Change the channel.' },
+    });
+    await app.inject({
+      method: 'POST', url: '/api/community/people/rankchecked/reviews', headers: asUser(asker.cookie),
+      payload: { kind: 'helped', rating: 5, body: 'Sorted it.', threadId: thread.id },
+    });
+    await rate('rankclaimed', [5], 'c');
+
+    const people = (await app.inject({ method: 'GET', url: '/api/community/people' })).json().people;
+    const a = scoreOf(people, 'rankchecked');
+    const b = scoreOf(people, 'rankclaimed');
+    assert.ok(a !== null && b !== null);
+    assert.ok(a > b, `a checked five (${a}) must count for more than an unchecked five (${b})`);
+    assert.ok(claimed.user.id);
+  });
+
+  it('drops somebody who is reviewed badly', async () => {
+    await signUp(app, 'goodone');
+    await signUp(app, 'poorone');
+    await rate('goodone', [5, 4, 5], 'd');
+    await rate('poorone', [1, 2, 1], 'e');
+
+    const people = (await app.inject({ method: 'GET', url: '/api/community/people' })).json().people;
+    const order = people.map((p: { handle: string }) => p.handle);
+    assert.ok(order.indexOf('goodone') < order.indexOf('poorone'));
+    assert.ok((scoreOf(people, 'poorone') ?? 5) < 3.5, 'bad reviews must pull below the neutral prior');
+  });
+
+  it('still returns people who have no reviews at all', async () => {
+    const newcomer = await signUp(app, 'brandnew');
+    const people = (await app.inject({ method: 'GET', url: '/api/community/people' })).json().people;
+    const found = people.find((p: { handle: string }) => p.handle === 'brandnew');
+    assert.ok(found, 'a new member must not vanish from the directory');
+    assert.equal(found.reviews.count, 0);
+    assert.equal(found.reviews.score, null, 'unrated is unrated, not zero');
+    assert.ok(newcomer.user.id);
+  });
+
+  it('never lets a hidden review count toward the ranking', async () => {
+    await signUp(app, 'targeted');
+    await rate('targeted', [5, 5], 'f');
+    const before = scoreOf((await app.inject({ method: 'GET', url: '/api/community/people' })).json().people, 'targeted');
+
+    const liar = await signUp(app, 'ranklaliar');
+    const id = (await app.inject({
+      method: 'POST', url: '/api/community/people/targeted/reviews', headers: asUser(liar.cookie),
+      payload: { kind: 'hired', rating: 1, body: 'Invented.' },
+    })).json().review.id;
+    for (const handle of ['rkm1', 'rkm2', 'rkm3']) {
+      const reporter = await signUp(app, handle);
+      await app.inject({
+        method: 'POST', url: '/api/community/report', headers: asUser(reporter.cookie),
+        payload: { kind: 'review', id, reason: 'untrue' },
+      });
+    }
+    const after = scoreOf((await app.inject({ method: 'GET', url: '/api/community/people' })).json().people, 'targeted');
+    assert.equal(after, before, 'hiding a review must undo its effect on the ranking');
+  });
+});
+
 describe('anti-spam limits', () => {
   it('caps new accounts per IP', async () => {
     const app = Fastify({ logger: false });

@@ -677,9 +677,17 @@ export function communityRoutes(options: CommunityOptions = {}) {
         .filter((u) => (query.trade !== undefined ? u.worksInTrade : true))
         .filter((u) => (skill ? u.skills.some((s) => s.toLowerCase() === skill) : true))
         .filter((u) => (trade ? u.trade.toLowerCase().includes(trade) : true))
-        .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
-        .slice(0, 100)
-        .map((u) => ({ ...publicUser(u), reviews: summarise(store.reviewsOf(u.id)) }));
+        .map((u) => ({ ...publicUser(u), reviews: summarise(store.reviewsOf(u.id)) }))
+        // Well-reviewed people first, so somebody looking for help finds them.
+        // Nobody with no reviews is buried by this: they come back unranked and
+        // the client gives them their own section, or there is no way in.
+        .sort((a, b) => {
+          const byScore = (b.reviews.score ?? -1) - (a.reviews.score ?? -1);
+          if (byScore !== 0) return byScore;
+          if (b.reviews.count !== a.reviews.count) return b.reviews.count - a.reviews.count;
+          return b.lastSeenAt - a.lastSeenAt;
+        })
+        .slice(0, 100);
       return { people, viewerId: me?.id ?? null };
     });
 

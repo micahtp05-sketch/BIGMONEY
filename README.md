@@ -208,10 +208,34 @@ name; no average until there are at least two, because printing "5.0" over a sin
 opinion reads like a track record; reviews are reportable and three reports hide one,
 which also removes it from the score.
 
+**How the directory ranks people.** Somebody looking for help sees well-reviewed
+members first. The order is a score, never shown to anyone, because it is a sort key
+and not a grade:
+
+```
+score = (3 × 3.5  +  Σ weight × rating) / (3 + Σ weight)
+weight = 2 for a checked "helped" review, 1 for an unchecked "hired" one
+```
+
+Two decisions are doing the work there. The prior — three imaginary middling reviews —
+means one glowing review lands near 3.9 while a real record of forties and fifties
+sits above 4, so somebody with six good reviews outranks somebody with one friend. And
+weighting the checkable kind double means a fabricated review buys half of what an
+earned one does.
+
+Anybody with no reviews yet keeps their own section on the page rather than being
+ranked last. Without that the loop closes: you cannot earn reviews because nobody sees
+you, and nobody sees you because you have no reviews — which would shut out every new
+tradesperson and every newly retired engineer with forty years behind them.
+
+Hiding a review removes it from the score as well as from the page.
+
 **What is still wrong with it, stated plainly.** There is no right of reply, so a
 mistaken or malicious `hired` review sits on a real person's trade with no recourse
 except a report — and there is still no moderator to receive that report. A brand-new
-account can post one. Nothing detects a business reviewing its competitor. These are
+account can post one. Nothing detects a business reviewing its competitor. Now that
+reviews order the directory, those same reviews decide who gets found, so the missing
+moderator matters more than it did when a review only sat on one profile. These are
 consequences of decisions taken deliberately, not oversights, and they are the first
 things to revisit if this goes anywhere near real tradespeople.
 

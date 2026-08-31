@@ -256,6 +256,25 @@ await step('the server refuses a verified review that never happened', async () 
   if (res.ok()) throw new Error('a fabricated verified review was accepted');
 });
 
+await step('the directory ranks by reviews but still shows newcomers', async () => {
+  await page.goto(`${BASE}/#/people`);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForSelector('.person');
+  const headings = await page.$$eval('main h2', (n) => n.map((x) => x.textContent.trim()));
+  if (!headings.includes('Best reviewed')) throw new Error(`no ranked section: ${JSON.stringify(headings)}`);
+  if (!headings.includes('No reviews yet')) {
+    throw new Error(`newcomers have no section of their own: ${JSON.stringify(headings)}`);
+  }
+  // The order the server sent must survive into the page.
+  const sent = await (await page.request.get(`${BASE}/api/community/people`)).json();
+  const ranked = sent.people.filter((p) => p.reviews && p.reviews.count > 0).map((p) => p.displayName);
+  const shown = await page.$$eval('main h2:text("Best reviewed") + p + .people .person h3', (n) => n.map((x) => x.textContent.trim()));
+  if (shown.length && ranked.length && shown[0] !== ranked[0]) {
+    throw new Error(`top of the ranked list is ${shown[0]}, server said ${ranked[0]}`);
+  }
+  await assertNoPlaceholders('the people directory');
+});
+
 await step('finds people by the trade they claim', async () => {
   await page.goto(`${BASE}/#/you`);
   await page.reload({ waitUntil: 'networkidle' });

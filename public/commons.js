@@ -955,14 +955,30 @@ async function viewPeople(trade = '') {
       el('button', { class: 'primary', type: 'submit', text: 'Find' }),
       trade ? el('button', { type: 'button', class: 'quiet', text: 'Show everyone', onclick: () => go('#/people') }) : null));
 
+  // The server sends them best-reviewed first. Three sections, and nobody is in
+  // two of them: who is free to talk right now, then everyone with reviews in
+  // the server's order, then everyone without. The last section exists so a new
+  // member is not invisible — you cannot earn reviews if nobody ever sees you.
+  const shown = new Set(free.map((p) => p.id));
+  const reviewed = people.filter((p) => !shown.has(p.id) && p.reviews && p.reviews.count > 0);
+  const newcomers = people.filter((p) => !shown.has(p.id) && (!p.reviews || p.reviews.count === 0));
+
   if (trade) {
+    const rated = people.filter((p) => p.reviews && p.reviews.count > 0);
+    const unrated = people.filter((p) => !p.reviews || p.reviews.count === 0);
     return show(
       el('h1', { text: 'People' }),
       findBar,
       el('h2', { text: `Say they work as “${trade}”` }),
-      people.length
-        ? el('div', { class: 'people' }, ...people.map(personCard))
-        : el('p', { class: 'empty', text: 'Nobody here says they do that for a living.' }),
+      rated.length
+        ? el('div', { class: 'people' }, ...rated.map(personCard))
+        : el('p', { class: 'hint', text: 'Nobody doing that has been reviewed yet.' }),
+      unrated.length
+        ? el('div', {},
+            el('h2', { text: 'No reviews yet' }),
+            el('div', { class: 'people' }, ...unrated.map(personCard)))
+        : null,
+      people.length ? null : el('p', { class: 'empty', text: 'Nobody here says they do that for a living.' }),
     );
   }
 
@@ -972,8 +988,17 @@ async function viewPeople(trade = '') {
     free.length
       ? el('div', {}, el('h2', { style: 'margin-top:8px', text: 'Free to talk now' }), el('div', { class: 'people' }, ...free.map(personCard)))
       : el('p', { class: 'hint', text: 'Nobody is free to talk right now.' }),
-    el('h2', { text: 'Everyone' }),
-    rest.length ? el('div', { class: 'people' }, ...rest.map(personCard)) : el('p', { class: 'hint', text: 'Nobody else yet.' }),
+    reviewed.length
+      ? el('div', {},
+          el('h2', { text: 'Best reviewed' }),
+          el('p', { class: 'hint', style: 'margin:-4px 0 12px',
+            text: 'Ordered by their reviews. Reviews about paid work are not checked by us.' }),
+          el('div', { class: 'people' }, ...reviewed.map(personCard)))
+      : null,
+    el('h2', { text: reviewed.length ? 'No reviews yet' : 'Everyone' }),
+    newcomers.length
+      ? el('div', { class: 'people' }, ...newcomers.map(personCard))
+      : el('p', { class: 'hint', text: 'Everybody here has been reviewed.' }),
   );
 }
 
