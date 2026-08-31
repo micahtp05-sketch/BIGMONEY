@@ -434,7 +434,7 @@ async function viewThread(id) {
   parts.push(el('h2', { text: `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}` }));
 
   if (!replies.length) {
-    parts.push(el('p', { class: 'empty', text: 'No replies yet. If you know something about this, say so — a half-answer beats silence.' }));
+    parts.push(el('p', { class: 'empty', text: emptyRepliesCopy(thread) }));
   }
   for (const reply of replies) parts.push(replyNode(thread, reply));
 
@@ -442,9 +442,21 @@ async function viewThread(id) {
   show(parts);
 }
 
+/** A question with no answers and a supper with no takers need different nudges. */
+function emptyRepliesCopy(thread) {
+  if (thread.channelKind === 'help') {
+    return 'No replies yet. If you know something about this, say so — a half-answer beats silence.';
+  }
+  if (thread.meetup) {
+    return 'Nobody has said anything yet. Ask about the details, or just say you are coming.';
+  }
+  return 'No replies yet. Saying something small is enough.';
+}
+
 function replyNode(thread, reply) {
-  const node = el('div', { class: `reply${reply.accepted ? ' accepted' : ''}` });
-  node.append(
+  // Built through el(), which drops nulls — Element.append(null) would render
+  // the string "null" into the page.
+  const node = el('div', { class: `reply${reply.accepted ? ' accepted' : ''}` },
     reply.accepted ? el('span', { class: 'chip answered', text: '✓ this is what worked' }) : null,
     byline(reply.author, reply.createdAt, reply.authorTopics),
     el('p', { class: 'body', text: reply.body }),
@@ -516,7 +528,11 @@ function replyComposer(thread) {
       el('span', { class: 'muted small', text: 'Sign in to reply. ' }),
       el('a', { href: '#/join', text: 'Join Commons' }));
   }
-  const body = el('textarea', { placeholder: 'Answer from what you have actually done. Say what you are unsure about.' });
+  const body = el('textarea', {
+    placeholder: thread.channelKind === 'help'
+      ? 'Answer from what you have actually done. Say what you are unsure about.'
+      : 'Say something back.',
+  });
   const send = el('button', { class: 'primary', text: 'Reply' });
   send.addEventListener('click', async () => {
     if (!body.value.trim()) return;

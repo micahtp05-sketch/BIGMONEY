@@ -36,6 +36,19 @@ npm test         # 62 tests, no network required
 npm run typecheck
 ```
 
+There is also a browser pass over the Commons client, kept out of `npm test`
+because it needs a running server and a real browser:
+
+```bash
+npm install --no-save playwright && npx playwright install chromium
+COMMUNITY_DATA=:memory: PORT=3210 npm start &
+BASE=http://127.0.0.1:3210 npm run test:browser
+```
+
+It catches what the API tests structurally cannot — a falsy value rendered into
+the page as the text "null", a live event that never arrives, markup in a post
+escaping into the DOM.
+
 ## Configuration
 
 | Variable | Default | Purpose |
