@@ -12,7 +12,8 @@
     "start": "node --experimental-strip-types src/server.ts",
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "test:browser": "node test/browser/commons.ui.mjs"
+    "test:browser": "node test/browser/commons.ui.mjs",
+    "seed:demo": "node scripts/seed-demo.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

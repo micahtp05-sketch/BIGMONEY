@@ -36,6 +36,25 @@ npm test         # 62 tests, no network required
 npm run typecheck
 ```
 
+A brand-new instance opens with fourteen channels and nothing in them, which
+tells you very little. To see it with a day of activity in it:
+
+```bash
+COMMUNITY_DATA=:memory: COMMUNITY_SIGNUPS_PER_HOUR=100 npm start &
+npm run seed:demo
+```
+
+That creates six members and a dozen threads **through the public API**, the
+same calls a browser makes — an answered question with the accepted reply, two
+meetups with RSVPs, a repair-or-replace question carrying a price estimate, and
+somebody posting at 3am in The Front Porch. It prints the handles to sign in as
+when it finishes.
+
+Every account it creates shares one well-known password, so it refuses to run
+against a non-localhost host, and refuses to add to an instance that already has
+members. `SEED_ALLOW_REMOTE=1` and `SEED_FORCE=1` override those; read what they
+say first.
+
 There is also a browser pass over the Commons client, kept out of `npm test`
 because it needs a running server and a real browser:
 
@@ -243,6 +262,7 @@ public/
   commons.js           Commons client — no framework, no build step
   commons.css
   estimate/index.html  The price estimator page
+scripts/seed-demo.mjs  Fills an empty instance with a day of activity
 data/fixtures.json     Sample listings for the offline source
 data/community.json    Commons state (created on first write, gitignored)
 test/                  Unit + integration tests
