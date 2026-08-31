@@ -1,7 +1,7 @@
 /**
  * Fill a Commons instance with a plausible day of activity.
  *
- * Fourteen empty channels tell you nothing about whether the thing works —
+ * Six empty channels tell you nothing about whether the thing works —
  * you cannot see an accepted answer, a waitlisted meetup, or a skill badge
  * until somebody has posted. This creates six members and a dozen threads
  * through the public API, exactly as a browser would, so what you end up
@@ -162,7 +162,7 @@ await call(`/threads/${radiator.id}/accept`, {
 
 // ------------------------------------------------------- the rest of the help
 
-await call('/channels/worth-it/threads', {
+await call('/channels/home-repair/threads', {
   method: 'POST',
   cookie: joan.cookie,
   body: {
@@ -177,7 +177,7 @@ await call('/channels/worth-it/threads', {
     },
   },
 });
-await call('/channels/borrow-a-tool/threads', {
+await call('/channels/home-repair/threads', {
   method: 'POST', cookie: tom.cookie,
   body: {
     title: 'Tile saw, SDS drill and a decent extension ladder, all free to borrow',
@@ -204,7 +204,7 @@ await call('/channels/tech-help/threads', {
 
 // ------------------------------------------------------------- the social side
 
-const walk = (await call('/channels/walks-and-coffee/threads', {
+const walk = (await call('/channels/meetups/threads', {
   method: 'POST', cookie: priya.cookie,
   body: {
     title: 'Saturday morning loop round the park, slow pace',
@@ -216,7 +216,7 @@ for (const who of [joan, dev, mara]) {
   await call(`/threads/${walk.id}/rsvp`, { method: 'POST', cookie: who.cookie });
 }
 
-const supper = (await call('/channels/sunday-supper/threads', {
+const supper = (await call('/channels/meetups/threads', {
   method: 'POST', cookie: joan.cookie,
   body: {
     title: 'Sunday table at mine — six seats, bring nothing',
@@ -228,7 +228,7 @@ for (const who of [eli, priya]) {
   await call(`/threads/${supper.id}/rsvp`, { method: 'POST', cookie: who.cookie });
 }
 
-const porch = (await call('/channels/front-porch/threads', {
+const porch = (await call('/channels/chat/threads', {
   method: 'POST', cookie: eli.cookie,
   body: {
     title: 'Anyone else awake?',
@@ -244,25 +244,25 @@ await call(`/threads/${porch.id}/replies`, {
   body: { body: 'Awake too. Post again tomorrow and somebody will answer then as well.' },
 });
 
-await call('/channels/check-in/threads', {
+await call('/channels/chat/threads', {
   method: 'POST', cookie: mara.cookie,
   body: {
     title: 'Thursday check-in',
     body: 'Say one thing about your day, however small. I will start: the good chair got moved into the sun and I have not moved since.',
   },
 });
-await call('/channels/cooks-table/threads', {
+await call('/channels/clubs/threads', {
   method: 'POST', cookie: joan.cookie,
   body: {
-    title: 'Made too much soup again',
-    body: 'Leek and potato, four portions spare, Riverside. First to say so can have them.',
+    title: 'Cooking lot: made too much soup again',
+    body: 'Leek and potato, four portions spare, Riverside. First to say so can have them. We swap what we have cooked most weeks, so say hello if you want in.',
   },
 });
-await call('/channels/book-club/threads', {
+await call('/channels/clubs/threads', {
   method: 'POST', cookie: dev.cookie,
   body: {
-    title: 'This month: anything you did not finish',
-    body: 'Reverse book club. Bring the book you gave up on and tell us where you stopped.',
+    title: 'Book club this month: anything you did not finish',
+    body: 'Reverse book club. Bring the book you gave up on and tell us where you stopped. No shame in it, that is rather the point.',
   },
 });
 
@@ -287,8 +287,8 @@ Sign in as any of these — the password for all of them is "${PASSWORD}":
   elik     posts at odd hours
 
 Worth a look:
-  /#/c/home-repair    an accepted answer, sorted to the top
+  /#/c/home-repair    an accepted answer, and a repair-or-replace question with a price estimate
   /#/meetups          two meetups with RSVPs
   /#/people           who is open to chat right now
-  /#/c/worth-it       a repair-or-replace question carrying a price estimate
+  /#/c/chat           somebody posting at 3am, answered inside the hour
 `);

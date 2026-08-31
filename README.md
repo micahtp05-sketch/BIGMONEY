@@ -36,8 +36,8 @@ npm test         # 62 tests, no network required
 npm run typecheck
 ```
 
-A brand-new instance opens with fourteen channels and nothing in them, which
-tells you very little. To see it with a day of activity in it:
+A brand-new instance opens with six channels and nothing in them, which tells
+you very little. To see it with a day of activity in it:
 
 ```bash
 COMMUNITY_DATA=:memory: COMMUNITY_SIGNUPS_PER_HOUR=100 npm start &
@@ -107,9 +107,9 @@ surfaces:
 
 | Channel kind | What it is for | Seeded channels |
 |---|---|---|
-| `help` | Somebody has a problem and wants an answer from someone who has done it | Home & Repair, Is It Worth Fixing?, Garden & Yard, Tech Help, Borrow a Tool, Money & Paperwork |
-| `group` | A standing public group around a shared interest | The Cook's Table, Makers & Menders, New Parents, Book Club |
-| `social` | Getting people who are alone into the same room | The Front Porch, Daily Check-In, Walks & Coffee, Sunday Supper |
+| `help` | Somebody has a problem and wants an answer from someone who has done it | Home & Repairs, Garden & Yard, Tech Help |
+| `group` | A standing public group around a shared interest | Clubs & Hobbies |
+| `social` | Getting people who are alone into the same room | Chat & Check In, Meetups |
 
 Members can also create channels of any kind (three a day, so the list stays
 navigable).
@@ -256,7 +256,7 @@ src/
     views.ts           Domain records -> what a client is allowed to see
     events.ts          In-process fan-out for SSE
     ratelimit.ts       Fixed-window limiter
-    seed.ts            The channels a new instance opens with
+    seed.ts            The six channels a new instance opens with
 public/
   index.html           Commons shell
   commons.js           Commons client — no framework, no build step

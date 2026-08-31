@@ -105,7 +105,7 @@ await step('profile skills produce a topic badge', async () => {
 });
 
 await step('create a meetup and RSVP state renders', async () => {
-  await page.goto(`${BASE}/#/c/walks-and-coffee`);
+  await page.goto(`${BASE}/#/c/meetups`);
   await page.reload({ waitUntil: 'networkidle' });
   await page.click('summary');
   await page.fill('label.field:has(span:text("Title")) input', 'Sunday morning loop');
@@ -140,18 +140,18 @@ await step('search finds the thread by title', async () => {
 });
 
 await step('live update arrives over SSE', async () => {
-  await page.goto(`${BASE}/#/c/front-porch`);
+  await page.goto(`${BASE}/#/c/chat`);
   await page.reload({ waitUntil: 'networkidle' });
   // A hash change does not reload, so wait for the channel itself to render
   // before counting — otherwise the count is whatever the last view left.
-  await page.waitForSelector('main h1:text("The Front Porch")');
+  await page.waitForSelector('main h1:text("Chat & Check In")');
   const before = (await page.$$('.thread-item')).length;
 
   const other = await browser.newPage();
   await other.request.post(`${BASE}/api/community/auth/signup`, {
     data: { handle: `sse${unique}`, password: 'a-good-long-password' },
   });
-  await other.request.post(`${BASE}/api/community/channels/front-porch/threads`, {
+  await other.request.post(`${BASE}/api/community/channels/chat/threads`, {
     data: { title: `Live from another window ${unique}`, body: 'Did this appear?' },
   });
   await page.waitForSelector(`.thread-item .t:text("Live from another window ${unique}")`, { timeout: 5000 });
@@ -161,10 +161,10 @@ await step('live update arrives over SSE', async () => {
 });
 
 await step('a post renders as text, never as markup', async () => {
-  await page.request.post(`${BASE}/api/community/channels/front-porch/threads`, {
+  await page.request.post(`${BASE}/api/community/channels/chat/threads`, {
     data: { title: `<img src=x onerror="window.__xss=1"> ${unique}`, body: '<script>window.__xss=1<\/script>' },
   });
-  await page.goto(`${BASE}/#/c/front-porch`);
+  await page.goto(`${BASE}/#/c/chat`);
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForSelector('.thread-item');
   if (await page.evaluate(() => window.__xss)) throw new Error('markup executed');

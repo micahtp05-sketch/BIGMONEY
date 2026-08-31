@@ -93,7 +93,7 @@ describe('Commons API', () => {
     const asker = await signUp(app, 'asker');
     const helper = await signUp(app, 'helper');
 
-    // The helper claims plumbing, which Home & Repair lists as a topic.
+    // The helper claims plumbing, which Home & Repairs lists as a topic.
     await app.inject({
       method: 'PATCH', url: '/api/community/me', headers: asUser(helper.cookie),
       payload: { skills: ['Plumbing'], bio: 'Twenty years of radiators.' },
@@ -198,7 +198,7 @@ describe('Commons API', () => {
     const latecomer = await signUp(app, 'latecomer');
 
     const created = await app.inject({
-      method: 'POST', url: '/api/community/channels/walks-and-coffee/threads',
+      method: 'POST', url: '/api/community/channels/meetups/threads',
       headers: asUser(host.cookie),
       payload: {
         title: 'Saturday loop round the park',
@@ -236,7 +236,7 @@ describe('Commons API', () => {
     assert.equal(wrongChannel.statusCode, 400);
 
     const inThePast = await app.inject({
-      method: 'POST', url: '/api/community/channels/sunday-supper/threads', headers: asUser(user.cookie),
+      method: 'POST', url: '/api/community/channels/meetups/threads', headers: asUser(user.cookie),
       payload: {
         title: 'Last week', body: 'no',
         meetup: { startsAt: Date.now() - 86_400_000, place: 'Here', capacity: 0 },
@@ -248,7 +248,7 @@ describe('Commons API', () => {
   it('hides content once enough distinct members report it', async () => {
     const poster = await signUp(app, 'poster');
     const thread = (await app.inject({
-      method: 'POST', url: '/api/community/channels/front-porch/threads',
+      method: 'POST', url: '/api/community/channels/chat/threads',
       headers: asUser(poster.cookie), payload: { title: 'Spam spam spam', body: 'Buy things.' },
     })).json().thread;
 
@@ -267,7 +267,7 @@ describe('Commons API', () => {
     });
     assert.equal(res.json().hidden, true);
 
-    const channel = await app.inject({ method: 'GET', url: '/api/community/channels/front-porch' });
+    const channel = await app.inject({ method: 'GET', url: '/api/community/channels/chat' });
     assert.equal(
       channel.json().threads.some((t: { id: string }) => t.id === thread.id), false,
       'hidden threads drop out of the channel listing',
@@ -278,7 +278,7 @@ describe('Commons API', () => {
     const poster = await signUp(app, 'poster2');
     const reporter = await signUp(app, 'repeater');
     const thread = (await app.inject({
-      method: 'POST', url: '/api/community/channels/front-porch/threads',
+      method: 'POST', url: '/api/community/channels/chat/threads',
       headers: asUser(poster.cookie), payload: { title: 'Contested', body: 'Hello.' },
     })).json().thread;
 
@@ -295,7 +295,7 @@ describe('Commons API', () => {
     const author = await signUp(app, 'owner');
     const stranger = await signUp(app, 'stranger');
     const thread = (await app.inject({
-      method: 'POST', url: '/api/community/channels/book-club/threads',
+      method: 'POST', url: '/api/community/channels/clubs/threads',
       headers: asUser(author.cookie), payload: { title: 'This month', body: 'Pick one.' },
     })).json().thread;
 
@@ -354,11 +354,11 @@ describe('Commons API', () => {
   it('searches titles ahead of bodies', async () => {
     const user = await signUp(app, 'searcher');
     await app.inject({
-      method: 'POST', url: '/api/community/channels/makers/threads', headers: asUser(user.cookie),
+      method: 'POST', url: '/api/community/channels/clubs/threads', headers: asUser(user.cookie),
       payload: { title: 'Mending a wicker chair', body: 'Unrelated words here.' },
     });
     await app.inject({
-      method: 'POST', url: '/api/community/channels/makers/threads', headers: asUser(user.cookie),
+      method: 'POST', url: '/api/community/channels/clubs/threads', headers: asUser(user.cookie),
       payload: { title: 'Unrelated title', body: 'I once mended a wicker seat.' },
     });
     const res = await app.inject({ method: 'GET', url: '/api/community/search?q=wicker' });
@@ -370,14 +370,14 @@ describe('Commons API', () => {
   it('validates thread input instead of storing junk', async () => {
     const user = await signUp(app, 'sloppy');
     const empty = await app.inject({
-      method: 'POST', url: '/api/community/channels/front-porch/threads', headers: asUser(user.cookie),
+      method: 'POST', url: '/api/community/channels/chat/threads', headers: asUser(user.cookie),
       payload: { title: '   ', body: 'x' },
     });
     assert.equal(empty.statusCode, 400);
     assert.match(empty.json().error, /title/);
 
     const tooLong = await app.inject({
-      method: 'POST', url: '/api/community/channels/front-porch/threads', headers: asUser(user.cookie),
+      method: 'POST', url: '/api/community/channels/chat/threads', headers: asUser(user.cookie),
       payload: { title: 'ok', body: 'x'.repeat(8001) },
     });
     assert.equal(tooLong.statusCode, 400);
@@ -411,7 +411,7 @@ describe('Commons API', () => {
     });
     const res = await app.inject({ method: 'GET', url: '/api/community/channels', headers: asUser(user.cookie) });
     const garden = res.json().channels.find((c: { slug: string }) => c.slug === 'garden-yard');
-    const porch = res.json().channels.find((c: { slug: string }) => c.slug === 'front-porch');
+    const porch = res.json().channels.find((c: { slug: string }) => c.slug === 'chat');
     assert.equal(garden.matchesYourSkills, true);
     assert.equal(porch.matchesYourSkills, false);
   });
@@ -460,7 +460,7 @@ describe('anti-spam limits', () => {
       let refusedAt = -1;
       for (let i = 0; i < 12; i += 1) {
         const res = await app.inject({
-          method: 'POST', url: '/api/community/channels/front-porch/threads',
+          method: 'POST', url: '/api/community/channels/chat/threads',
           headers: asUser(user.cookie), payload: { title: `Post ${i}`, body: 'Hello.' },
         });
         if (res.statusCode === 429) { refusedAt = i; break; }
