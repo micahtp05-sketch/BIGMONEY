@@ -200,6 +200,78 @@ await step("what's on lists the meetup", async () => {
   if (!(await page.isVisible('.post .t:text("Sunday morning loop")'))) throw new Error('get-together missing');
 });
 
+await step('a review of help given here is accepted and marked verified', async () => {
+  // Set up a real interaction first: a seeded member answers the question this
+  // browser user asked. Without that there is nothing verifiable to review,
+  // and the server is right to refuse one.
+  const channel = await (await page.request.get(`${BASE}/api/community/channels/home-repair`)).json();
+  const draught = channel.threads.find((t) => t.title === 'Draught under the back door');
+  if (!draught) throw new Error('the question posted earlier is missing');
+
+  const helper = await browser.newPage();
+  const signedIn = await helper.request.post(`${BASE}/api/community/auth/login`, {
+    data: { handle: 'tomh', password: 'a-good-long-password' },
+  });
+  if (!signedIn.ok()) throw new Error('could not sign in as a seeded member');
+  const answered = await helper.request.post(`${BASE}/api/community/threads/${draught.id}/replies`, {
+    data: { body: 'A brush strip along the bottom sorts that.' },
+  });
+  if (!answered.ok()) throw new Error(`the helper could not answer: ${answered.status()}`);
+  await helper.close();
+
+  await page.goto(`${BASE}/#/u/tomh`);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForSelector('main h1');
+  await page.click('summary:has-text("Write a review")');
+  await page.waitForSelector('#r-kind');
+  await page.selectOption('#r-kind', 'helped');
+  await page.selectOption('#r-rating', '5');
+  await page.fill('#r-body', 'Told me to fit a brush strip. It worked.');
+  await page.click('button:has-text("Post review")');
+  await page.waitForSelector('.review.verified');
+  if (!(await page.isVisible('.tag.worked:has-text("Helped them on Commons")'))) {
+    throw new Error('a verified review is not labelled as one');
+  }
+  await assertNoPlaceholders('a profile with reviews');
+});
+
+await step('an unverifiable review is accepted but labelled', async () => {
+  await page.goto(`${BASE}/#/u/joanb`);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.click('summary:has-text("Write a review")');
+  await page.waitForSelector('#r-kind');
+  await page.selectOption('#r-kind', 'hired');
+  await page.fill('#r-body', 'Built us a set of shelves.');
+  await page.click('button:has-text("Post review")');
+  await page.waitForSelector('.review');
+  if (!(await page.isVisible('.tag.warnish'))) throw new Error('an unchecked review is not labelled');
+  if (await page.$('.review.verified')) throw new Error('a hired review must not read as verified');
+});
+
+await step('the server refuses a verified review that never happened', async () => {
+  // Straight at the API, because the form will not offer the option.
+  const res = await page.request.post(`${BASE}/api/community/people/priyas/reviews`, {
+    data: { kind: 'helped', rating: 5, body: 'Never met them.', threadId: 'not-a-real-thread' },
+  });
+  if (res.ok()) throw new Error('a fabricated verified review was accepted');
+});
+
+await step('finds people by the trade they claim', async () => {
+  await page.goto(`${BASE}/#/you`);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.fill('#p-trade', 'Roofer');
+  await page.check('label.toggle:has-text("for a living") input');
+  await page.click('button:has-text("Save")');
+  await page.waitForSelector('.ok');
+
+  await page.goto(`${BASE}/#/people`);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.fill('#tradeq', 'roof');
+  await page.click('button:has-text("Find")');
+  await page.waitForSelector('.person');
+  if (!(await page.isVisible('.tag.trade:has-text("Roofer")'))) throw new Error('trade not shown on the card');
+});
+
 await step('members page shows open-to-chat presence', async () => {
   await page.click('nav.main a:text("You")');
   await page.waitForSelector('main h1:text("Your page")');

@@ -129,6 +129,56 @@ function who(author, ts, knows = []) {
   );
 }
 
+/** Stars as text, because a row of glyphs alone is not readable to everyone. */
+function stars(rating) {
+  return el('span', { class: 'stars', title: `${rating} out of 5` },
+    el('span', { 'aria-hidden': 'true', text: '★'.repeat(rating) + '☆'.repeat(5 - rating) }),
+    el('span', { class: 'sr', text: `${rating} out of 5` }));
+}
+
+function ratingLine(summary) {
+  if (!summary || summary.count === 0) return el('p', { class: 'hint', style: 'margin:0', text: 'No reviews yet.' });
+  const parts = [];
+  if (summary.average !== null) parts.push(`${summary.average} out of 5`);
+  parts.push(summary.count === 1 ? '1 review' : `${summary.count} reviews`);
+  if (summary.verified) parts.push(`${summary.verified} from help given here`);
+  return el('p', { class: 'hint', style: 'margin:0', text: parts.join(' · ') });
+}
+
+function tradeLine(person) {
+  if (!person.trade) return null;
+  return el('p', { class: 'row', style: 'gap:8px; margin:0 0 8px' },
+    el('span', { class: 'tag trade', text: person.trade }),
+    person.worksInTrade ? el('span', { class: 'hint', text: 'Says they do this for a living' }) : null);
+}
+
+function reviewCard(review) {
+  return el('div', { class: `review${review.verified ? ' verified' : ''}` },
+    el('p', { class: 'who', style: 'margin:0 0 6px' },
+      stars(review.rating),
+      el('a', { href: `#/u/${encodeURIComponent(review.author.handle)}`, text: review.author.displayName }),
+      el('span', { text: ago(review.createdAt) })),
+    el('p', { class: 'row', style: 'gap:8px; margin:0 0 8px' },
+      review.verified
+        ? el('span', { class: 'tag worked', text: 'Helped them on Commons' })
+        : el('span', { class: 'tag warnish', text: 'Says they hired them. We cannot check this.' })),
+    el('p', { class: 'body', style: 'margin:0', text: review.body }),
+    el('div', { class: 'row', style: 'margin-top:10px' },
+      review.viewerIsAuthor
+        ? el('button', {
+            class: 'quiet', text: 'Delete',
+            onclick: async () => {
+              const yes = await askDialog({ title: 'Delete your review?', confirmText: 'Delete', danger: true });
+              if (!yes) return;
+              await api(`/reviews/${review.id}`, { method: 'DELETE' });
+              route();
+            },
+          })
+        : state.me ? reportButton('review', review.id) : null,
+    ),
+  );
+}
+
 function priceBox(estimate) {
   return el('div', { class: 'price-box' },
     el('p', { class: 'hint', style: 'margin:0', text: estimate.title }),
@@ -787,6 +837,96 @@ function openConversation(thread, guestId, host, withName) {
   }).catch((error) => host.replaceChildren(el('p', { class: 'err', text: error.message })));
 }
 
+/**
+ * Writing a review.
+ *
+ * Two kinds. "They helped me here" has to point at the question or
+ * get-together it came from, which the server checks; the options offered are
+ * whatever the API says actually happened between these two people. "I hired
+ * them" is accepted on trust and labelled that way wherever it appears.
+ */
+function reviewForm(subject, alreadyReviewed) {
+  if (!state.me) {
+    return el('div', { class: 'card' },
+      el('p', { style: 'margin:0 0 12px', text: 'Sign in to write a review.' }),
+      el('button', { class: 'primary', text: 'Sign in or join', onclick: () => go('#/in') }));
+  }
+  if (state.me.id === subject.id) return null;
+  if (alreadyReviewed) {
+    return el('p', { class: 'hint', style: 'margin-top:14px', text: 'You have already reviewed them.' });
+  }
+
+  const rating = el('select', { id: 'r-rating' },
+    ...[5, 4, 3, 2, 1].map((n) => el('option', { value: String(n), text: `${n} out of 5` })));
+  const body = el('textarea', { id: 'r-body', maxlength: 2000 });
+  const kind = el('select', { id: 'r-kind' },
+    el('option', { value: 'helped', text: 'They helped me on Commons' }),
+    el('option', { value: 'hired', text: 'I hired them for paid work' }));
+  const sharedPick = el('select', { id: 'r-thread' });
+  const sharedField = el('label', { class: 'field' },
+    el('span', { class: 'lab', text: 'Which one' }), sharedPick);
+  const unverifiedNote = el('p', { class: 'warnbox', hidden: true,
+    text: 'We cannot check paid work. Your review will be shown as unchecked, with your name on it.' });
+  const note = el('p', { style: 'margin:0' });
+
+  api(`/people/${encodeURIComponent(subject.handle)}/shared`)
+    .then(({ shared }) => {
+      if (!shared.length) {
+        // Nothing happened between them here, so only the honest option is left.
+        kind.value = 'hired';
+        kind.options[0].disabled = true;
+        kind.options[0].textContent = 'They helped me on Commons (nothing found)';
+        sharedField.hidden = true;
+        unverifiedNote.hidden = false;
+        return;
+      }
+      sharedPick.replaceChildren(...shared.map((t) => el('option', { value: t.id, text: t.title })));
+    })
+    .catch(() => { sharedField.hidden = true; });
+
+  kind.addEventListener('change', () => {
+    const hired = kind.value === 'hired';
+    sharedField.hidden = hired;
+    unverifiedNote.hidden = !hired;
+  });
+
+  const send = el('button', { class: 'primary', text: 'Post review' });
+  send.addEventListener('click', async () => {
+    if (!body.value.trim()) {
+      note.replaceChildren(el('span', { class: 'err', text: 'Please say something about them.' }));
+      return;
+    }
+    send.disabled = true;
+    try {
+      const payload = { kind: kind.value, rating: Number(rating.value), body: body.value.trim() };
+      if (kind.value === 'helped') {
+        if (!sharedPick.value) throw new Error('Choose which question or get-together this was about.');
+        payload.threadId = sharedPick.value;
+      }
+      await api(`/people/${encodeURIComponent(subject.handle)}/reviews`, { method: 'POST', body: payload });
+      say('Review posted.');
+      route();
+    } catch (error) {
+      note.replaceChildren(el('span', { class: 'err', text: error.message }));
+    } finally { send.disabled = false; }
+  });
+
+  return el('details', { class: 'card' },
+    el('summary', { text: `Write a review of ${subject.displayName}` }),
+    el('div', { style: 'margin-top:14px' },
+      el('label', { class: 'field' }, el('span', { class: 'lab', text: 'What is this about' }), kind),
+      sharedField,
+      unverifiedNote,
+      el('label', { class: 'field' }, el('span', { class: 'lab', text: 'Your rating' }), rating),
+      el('label', { class: 'field' },
+        el('span', { class: 'lab', text: 'What happened' }),
+        el('span', { class: 'help', text: 'Your name is shown with it.' }),
+        body),
+      el('div', { class: 'row' }, send), note,
+    ),
+  );
+}
+
 // ------------------------------------------------------------- other pages
 
 async function viewMeetups() {
@@ -800,12 +940,35 @@ async function viewMeetups() {
   );
 }
 
-async function viewPeople() {
-  const { people } = await api('/people');
+async function viewPeople(trade = '') {
+  const { people } = await api(trade ? `/people?trade=${encodeURIComponent(trade)}` : '/people');
   const free = people.filter((p) => p.openToChat);
   const rest = people.filter((p) => !p.openToChat);
+
+  const search = el('input', { type: 'text', id: 'tradeq', value: trade, placeholder: 'plumber, electrician…' });
+  const findBar = el('form', { class: 'card', onsubmit: (e) => { e.preventDefault(); go(`#/people/${encodeURIComponent(search.value.trim())}`); } },
+    el('label', { class: 'field', style: 'margin-bottom:10px' },
+      el('span', { class: 'lab', text: 'Looking for a trade?' }),
+      el('span', { class: 'help', text: 'Finds people who say they do it for a living.' }),
+      search),
+    el('div', { class: 'row' },
+      el('button', { class: 'primary', type: 'submit', text: 'Find' }),
+      trade ? el('button', { type: 'button', class: 'quiet', text: 'Show everyone', onclick: () => go('#/people') }) : null));
+
+  if (trade) {
+    return show(
+      el('h1', { text: 'People' }),
+      findBar,
+      el('h2', { text: `Say they work as “${trade}”` }),
+      people.length
+        ? el('div', { class: 'people' }, ...people.map(personCard))
+        : el('p', { class: 'empty', text: 'Nobody here says they do that for a living.' }),
+    );
+  }
+
   show(
     el('h1', { text: 'People' }),
+    findBar,
     free.length
       ? el('div', {}, el('h2', { style: 'margin-top:8px', text: 'Free to talk now' }), el('div', { class: 'people' }, ...free.map(personCard)))
       : el('p', { class: 'hint', text: 'Nobody is free to talk right now.' }),
@@ -817,8 +980,10 @@ async function viewPeople() {
 function personCard(person) {
   return el('div', { class: 'person' },
     el('h3', {}, el('a', { href: `#/u/${encodeURIComponent(person.handle)}`, text: person.displayName })),
+    tradeLine(person),
     el('p', { class: 'who', style: 'margin:0 0 8px' },
       el('span', { text: person.neighborhood || 'No area given' })),
+    person.reviews && person.reviews.count ? ratingLine(person.reviews) : null,
     person.openToChat ? el('p', { class: 'free', style: 'margin:0 0 8px', text: 'Free to talk now' }) : null,
     person.bio ? el('p', { class: 'hint', style: 'margin:0 0 8px', text: person.bio }) : null,
     person.skills.length
@@ -849,12 +1014,17 @@ function helloButton(person) {
 }
 
 async function viewPerson(handle) {
-  const { user, threads } = await api(`/people/${encodeURIComponent(handle)}`);
+  const { user, threads, summary, reviews } = await api(`/people/${encodeURIComponent(handle)}`);
+  const { viewerHasReviewed } = state.me
+    ? await api(`/people/${encodeURIComponent(handle)}/reviews`).catch(() => ({ viewerHasReviewed: false }))
+    : { viewerHasReviewed: false };
   show(
     el('h1', { text: user.displayName }),
     el('div', { class: 'card' },
+      tradeLine(user),
       el('p', { class: 'hint', style: 'margin:0 0 8px', text: user.neighborhood || 'No area given' }),
-      user.bio ? el('p', { style: 'margin:0 0 10px', text: user.bio }) : null,
+      ratingLine(summary),
+      user.bio ? el('p', { style: 'margin:10px 0 10px', text: user.bio }) : null,
       user.skills.length
         ? el('p', { class: 'row', style: 'gap:8px; margin:0 0 10px' },
             el('span', { class: 'hint', text: 'Can help with:' }),
@@ -863,6 +1033,15 @@ async function viewPerson(handle) {
       user.helpfulCount ? el('p', { class: 'hint', style: 'margin:0 0 10px', text: `${user.helpfulCount} answers that worked.` }) : null,
       state.me && state.me.id !== user.id ? helloButton(user) : null,
     ),
+    el('h2', { text: summary.count === 1 ? '1 review' : `${summary.count} reviews` }),
+    summary.unverified > 0
+      ? el('p', { class: 'warnbox',
+          text: 'Reviews about paid work cannot be checked by Commons. Nobody here is vetted or licensed.' })
+      : null,
+    reviews.length
+      ? el('div', { class: 'stack' }, ...reviews.map(reviewCard))
+      : el('p', { class: 'hint', text: 'Nobody has reviewed them yet.' }),
+    reviewForm(user, viewerHasReviewed),
     el('h2', { text: 'Their posts' }),
     threads.length ? el('div', {}, ...threads.map(postCard)) : el('p', { class: 'hint', text: 'Nothing yet.' }),
   );
@@ -875,6 +1054,8 @@ function viewYou() {
   const area = el('input', { type: 'text', id: 'p-area', value: me.neighborhood, maxlength: 80 });
   const about = el('textarea', { id: 'p-about', maxlength: 500 }); about.value = me.bio;
   const canHelp = el('input', { type: 'text', id: 'p-help', value: me.skills.join(', ') });
+  const trade = el('input', { type: 'text', id: 'p-trade', value: me.trade, maxlength: 60 });
+  const forLiving = el('input', { type: 'checkbox', checked: me.worksInTrade });
   const note = el('p', { style: 'margin:0' });
 
   const free = el('input', { type: 'checkbox', checked: me.openToChat });
@@ -897,6 +1078,8 @@ function viewYou() {
           neighborhood: area.value.trim(),
           bio: about.value.trim(),
           skills: canHelp.value.split(',').map((s) => s.trim()).filter(Boolean),
+          trade: trade.value.trim(),
+          worksInTrade: forLiving.checked,
         },
       });
       state.me = user;
@@ -922,6 +1105,11 @@ function viewYou() {
         el('span', { class: 'lab', text: 'What you can help with' }),
         el('span', { class: 'help', text: 'Separate them with commas. Shown next to your answers. Nobody checks these.' }),
         canHelp),
+      el('label', { class: 'field' },
+        el('span', { class: 'lab', text: 'Your trade' }),
+        el('span', { class: 'help', text: 'Such as Plumber or Gardener. Leave it empty if you would rather not say.' }),
+        trade),
+      el('label', { class: 'toggle', style: 'margin-bottom:16px' }, forLiving, 'I do this for a living'),
       el('div', { class: 'row' }, save), note,
     ),
   );
@@ -1046,6 +1234,7 @@ async function renderRoute() {
     if (hash.startsWith('#/plan/')) return viewPlan(decodeURIComponent(hash.slice(7)));
     if (hash.startsWith('#/find/')) return await viewSearch(decodeURIComponent(hash.slice(7)));
     if (hash === '#/meet') return await viewMeetups();
+    if (hash.startsWith('#/people/')) return await viewPeople(decodeURIComponent(hash.slice(9)));
     if (hash === '#/people') return await viewPeople();
     if (hash === '#/you') return viewYou();
     if (hash === '#/hellos') return await viewHellos();

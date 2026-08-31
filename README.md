@@ -132,6 +132,11 @@ navigable).
 - **Meetups.** A meetup *is* a thread, with a time and RSVPs — and deliberately **no
   location field at all**. Past capacity people join a waitlist rather than being turned
   away. `/api/community/meetups` is the cross-channel "what's on".
+- **Reviews.** Two kinds, kept visibly apart: *helped* reviews are anchored to
+  something Commons watched happen and are refused otherwise; *hired* reviews are
+  about paid work off the platform and are labelled unchecked wherever they appear.
+  A member can add a self-declared trade, and the directory can be filtered by it.
+  See [Why reviews look like this](#why-reviews-look-like-this).
 - **Private messages, only around a meetup.** When somebody says they are coming, a
   channel opens between them and the host, and that is where the address goes. See
   [Why a meetup has no address](#why-a-meetup-has-no-address).
@@ -166,6 +171,10 @@ POST   /replies/:id/helpful        toggle    DELETE /replies/:id
 GET    /meetups                    upcoming, across every channel
 GET    /people                     ?open=1&skill=plumbing
 GET    /people/:handle
+GET    /people/:handle/reviews      list + summary
+POST   /people/:handle/reviews      {kind, rating, body, threadId?}
+GET    /people/:handle/shared       what the viewer could write a checked review about
+DELETE /reviews/:id                 author only
 POST   /waves | GET /waves | POST /waves/read
 GET    /search?q=
 POST   /report                     {kind: thread|reply, id, reason}
@@ -182,6 +191,29 @@ facts and no judgements: what a member *says* they know (shown with "says they k
 wording, next to the answer where it can be weighed), and how many times an asker
 marked one of their answers as the one that worked. Credit follows the mark, so
 un-marking takes the point back.
+
+**Why reviews look like this.** A `helped` review has to point at the thread it came
+from, and the server checks that the person being reviewed actually answered the
+reviewer's question, or hosted a get-together the reviewer said they were coming to.
+Anything else is refused. That makes one class of review genuinely hard to fake.
+
+A `hired` review is about paid work done somewhere Commons cannot see. None of it is
+checkable: not that the job happened, not that these two ever met. It exists because
+people judging a tradesperson want it, and it is labelled *"Says they hired them. We
+cannot check this"* on every card, with a standing warning above the list.
+
+Around that: one review per person per subject, so nobody can pile on; no anonymous
+reviews, because an unverifiable claim about somebody's livelihood should carry a
+name; no average until there are at least two, because printing "5.0" over a single
+opinion reads like a track record; reviews are reportable and three reports hide one,
+which also removes it from the score.
+
+**What is still wrong with it, stated plainly.** There is no right of reply, so a
+mistaken or malicious `hired` review sits on a real person's trade with no recourse
+except a report — and there is still no moderator to receive that report. A brand-new
+account can post one. Nothing detects a business reviewing its competitor. These are
+consequences of decisions taken deliberately, not oversights, and they are the first
+things to revisit if this goes anywhere near real tradespeople.
 
 **Why a meetup has no address.** A meetup's location is the most dangerous thing this
 platform could publish. Hosts write their own homes into it — the demo data used to say

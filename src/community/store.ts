@@ -8,6 +8,7 @@ import type {
   MeetupMessage,
   PublicUser,
   Reply,
+  Review,
   Session,
   Thread,
   User,
@@ -24,6 +25,7 @@ const EMPTY: CommunityData = {
   replies: [],
   waves: [],
   meetupMessages: [],
+  reviews: [],
 };
 
 /**
@@ -43,6 +45,7 @@ export class CommunityStore {
   readonly sessions = new Map<string, Session>();
   readonly waves = new Map<string, Wave>();
   readonly meetupMessages = new Map<string, MeetupMessage>();
+  readonly reviews = new Map<string, Review>();
 
   /** userId -> credential. */
   private readonly credentials = new Map<string, Credential>();
@@ -53,6 +56,7 @@ export class CommunityStore {
   private readonly repliesByThread = new Map<string, string[]>();
   /** Keyed `threadId:guestId` — one private channel per meetup per guest. */
   private readonly messagesByChannel = new Map<string, string[]>();
+  private readonly reviewsBySubject = new Map<string, string[]>();
 
   private readonly path: string | null;
   private flushTimer: NodeJS.Timeout | null = null;
@@ -83,6 +87,7 @@ export class CommunityStore {
     for (const r of data.replies) this.indexReply(r);
     for (const w of data.waves) this.waves.set(w.id, w);
     for (const m of data.meetupMessages ?? []) this.indexMeetupMessage(m);
+    for (const r of data.reviews ?? []) this.indexReview(r);
   }
 
   /** Mark dirty and schedule a flush. Callers use this after every mutation. */
@@ -110,6 +115,7 @@ export class CommunityStore {
       replies: [...this.replies.values()],
       waves: [...this.waves.values()],
       meetupMessages: [...this.meetupMessages.values()],
+      reviews: [...this.reviews.values()],
     };
     mkdirSync(dirname(this.path), { recursive: true });
     const tmp = `${this.path}.${process.pid}.tmp`;
@@ -152,6 +158,8 @@ export class CommunityStore {
       skills: [],
       neighborhood: '',
       openToChat: false,
+      trade: '',
+      worksInTrade: false,
       helpfulCount: 0,
       createdAt: now,
       lastSeenAt: now,
@@ -279,6 +287,41 @@ export class CommunityStore {
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
+  // --------------------------------------------------------------- reviews
+
+  private indexReview(review: Review): void {
+    this.reviews.set(review.id, review);
+    const list = this.reviewsBySubject.get(review.subjectId);
+    if (list) list.push(review.id);
+    else this.reviewsBySubject.set(review.subjectId, [review.id]);
+  }
+
+  addReview(review: Review): Review {
+    this.indexReview(review);
+    this.touch();
+    return review;
+  }
+
+  /** Visible reviews of one member, newest first. */
+  reviewsOf(subjectId: string): Review[] {
+    const ids = this.reviewsBySubject.get(subjectId) ?? [];
+    const out: Review[] = [];
+    for (const id of ids) {
+      const r = this.reviews.get(id);
+      if (r && !r.hidden) out.push(r);
+    }
+    return out.sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  /** One person gets one review of another — this finds an existing one. */
+  reviewBy(authorId: string, subjectId: string): Review | undefined {
+    for (const id of this.reviewsBySubject.get(subjectId) ?? []) {
+      const r = this.reviews.get(id);
+      if (r && r.authorId === authorId) return r;
+    }
+    return undefined;
+  }
+
   // ----------------------------------------------------------- meetup chat
 
   /** The key for one private channel: a meetup and the guest it belongs to. */
@@ -339,6 +382,12 @@ export class CommunityStore {
 
 /** Strip everything a member shouldn't see about another member. */
 export function publicUser(user: User): PublicUser {
-  const { id, handle, displayName, bio, skills, neighborhood, openToChat, helpfulCount, createdAt, lastSeenAt } = user;
-  return { id, handle, displayName, bio, skills, neighborhood, openToChat, helpfulCount, createdAt, lastSeenAt };
+  const {
+    id, handle, displayName, bio, skills, neighborhood, openToChat,
+    trade, worksInTrade, helpfulCount, createdAt, lastSeenAt,
+  } = user;
+  return {
+    id, handle, displayName, bio, skills, neighborhood, openToChat,
+    trade, worksInTrade, helpfulCount, createdAt, lastSeenAt,
+  };
 }

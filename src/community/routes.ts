@@ -17,8 +17,8 @@ import { EventBus } from './events.ts';
 import { RateLimiter } from './ratelimit.ts';
 import { SEED_CHANNELS } from './seed.ts';
 import { CommunityStore, publicUser } from './store.ts';
-import type { MeetupMessage, Reply, Thread, User } from './types.ts';
-import { replyView, threadView } from './views.ts';
+import type { MeetupMessage, Reply, Review, Thread, User } from './types.ts';
+import { replyView, reviewView, summarise, threadView } from './views.ts';
 
 /** Reports from this many distinct members hide content pending review. */
 const HIDE_AFTER_REPORTS = 3;
@@ -64,6 +64,16 @@ const profileSchema = z.object({
   neighborhood: z.string().trim().max(80).optional(),
   skills: z.array(z.string().trim().toLowerCase().min(1).max(30)).max(12).optional(),
   openToChat: z.boolean().optional(),
+  trade: z.string().trim().max(60).optional(),
+  worksInTrade: z.boolean().optional(),
+});
+
+const reviewSchema = z.object({
+  kind: z.enum(['helped', 'hired']),
+  rating: z.number().int().min(1).max(5),
+  body: z.string().trim().min(1).max(2000),
+  /** Required for a `helped` review — it is what makes it checkable. */
+  threadId: z.string().optional(),
 });
 
 export interface CommunityOptions {
@@ -151,7 +161,7 @@ export function communityRoutes(options: CommunityOptions = {}) {
     }
 
     /** Record a report and hide the content once enough distinct people agree. */
-    function report(target: Thread | Reply | MeetupMessage, reporterId: string): boolean {
+    function report(target: Thread | Reply | MeetupMessage | Review, reporterId: string): boolean {
       if (!target.reportedBy.includes(reporterId)) target.reportedBy.push(reporterId);
       if (target.reportedBy.length >= HIDE_AFTER_REPORTS) target.hidden = true;
       store.touch();
@@ -246,6 +256,8 @@ export function communityRoutes(options: CommunityOptions = {}) {
       if (input.bio !== undefined) user.bio = input.bio;
       if (input.neighborhood !== undefined) user.neighborhood = input.neighborhood;
       if (input.skills !== undefined) user.skills = [...new Set(input.skills)];
+      if (input.trade !== undefined) user.trade = input.trade;
+      if (input.worksInTrade !== undefined) user.worksInTrade = input.worksInTrade;
       if (input.openToChat !== undefined && input.openToChat !== user.openToChat) {
         user.openToChat = input.openToChat;
         bus.publish({ type: 'presence.changed', userId: user.id, openToChat: user.openToChat });
@@ -656,15 +668,18 @@ export function communityRoutes(options: CommunityOptions = {}) {
     app.get('/people', async (request) => {
       const me = viewer(request);
       const query = z
-        .object({ skill: z.string().optional(), open: z.string().optional() })
+        .object({ skill: z.string().optional(), open: z.string().optional(), trade: z.string().optional() })
         .parse(request.query);
       const skill = query.skill?.trim().toLowerCase();
+      const trade = query.trade?.trim().toLowerCase();
       const people = [...store.users.values()]
         .filter((u) => (query.open === '1' ? u.openToChat : true))
+        .filter((u) => (query.trade !== undefined ? u.worksInTrade : true))
         .filter((u) => (skill ? u.skills.some((s) => s.toLowerCase() === skill) : true))
+        .filter((u) => (trade ? u.trade.toLowerCase().includes(trade) : true))
         .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
         .slice(0, 100)
-        .map(publicUser);
+        .map((u) => ({ ...publicUser(u), reviews: summarise(store.reviewsOf(u.id)) }));
       return { people, viewerId: me?.id ?? null };
     });
 
@@ -678,7 +693,121 @@ export function communityRoutes(options: CommunityOptions = {}) {
         .sort((a, b) => b.createdAt - a.createdAt)
         .slice(0, 20)
         .map((t) => threadView(store, t, me?.id ?? null));
-      return { user: publicUser(user), threads };
+      const reviews = store.reviewsOf(user.id);
+      return {
+        user: publicUser(user),
+        threads,
+        summary: summarise(reviews),
+        reviews: reviews.slice(0, 20).map((r) => reviewView(store, r, me?.id ?? null)),
+      };
+    });
+
+    // -------------------------------------------------------------- reviews
+
+    /**
+     * Did the thing a `helped` review describes actually happen here?
+     *
+     * Two shapes count, and both are visible in the data: the subject answered
+     * a question the reviewer asked, or the subject hosted a get-together the
+     * reviewer said they were coming to. Anything else is not a `helped`
+     * review, whatever the person writing it believes.
+     */
+    function helpedMe(threadId: string, subjectId: string, reviewerId: string): boolean {
+      const thread = store.threads.get(threadId);
+      if (!thread || thread.deletedAt !== null) return false;
+
+      if (thread.authorId === reviewerId) {
+        return store.repliesOn(thread.id).some((r) => r.authorId === subjectId);
+      }
+      if (thread.authorId === subjectId && thread.meetup) {
+        return thread.meetup.rsvps.includes(reviewerId);
+      }
+      return false;
+    }
+
+    app.get('/people/:handle/reviews', async (request) => {
+      const { handle } = z.object({ handle: z.string() }).parse(request.params);
+      const me = viewer(request);
+      const subject = store.userByHandle(handle);
+      if (!subject) throw new HttpError(404, 'No such member.');
+
+      const reviews = store.reviewsOf(subject.id);
+      return {
+        subject: publicUser(subject),
+        summary: summarise(reviews),
+        reviews: reviews.map((r) => reviewView(store, r, me?.id ?? null)),
+        viewerHasReviewed: me ? store.reviewBy(me.id, subject.id) !== undefined : false,
+      };
+    });
+
+    app.post('/people/:handle/reviews', async (request, reply) => {
+      const user = requireUser(request);
+      limit(user, 'review', 5, 24 * 60 * 60 * 1000);
+      const { handle } = z.object({ handle: z.string() }).parse(request.params);
+      const input = reviewSchema.parse(request.body);
+      const subject = store.userByHandle(handle);
+      if (!subject) throw new HttpError(404, 'No such member.');
+      if (subject.id === user.id) throw new HttpError(400, 'You cannot review yourself.');
+      if (store.reviewBy(user.id, subject.id)) {
+        throw new HttpError(409, 'You have already reviewed them.');
+      }
+
+      // A `helped` review has to point at the thing it is about.
+      let threadId: string | null = null;
+      if (input.kind === 'helped') {
+        if (!input.threadId) throw new HttpError(400, 'Say which question or get-together this was.');
+        if (!helpedMe(input.threadId, subject.id, user.id)) {
+          throw new HttpError(
+            403,
+            'We can only take that as help given here if they answered your question or hosted a get-together you went to.',
+          );
+        }
+        threadId = input.threadId;
+      }
+
+      const review = store.addReview({
+        id: randomUUID(),
+        subjectId: subject.id,
+        authorId: user.id,
+        kind: input.kind,
+        rating: input.rating,
+        body: input.body,
+        threadId,
+        createdAt: Date.now(),
+        reportedBy: [],
+        hidden: false,
+      });
+      return reply.code(201).send({ review: reviewView(store, review, user.id) });
+    });
+
+    app.delete('/reviews/:id', async (request) => {
+      const user = requireUser(request);
+      const { id } = z.object({ id: z.string() }).parse(request.params);
+      const review = store.reviews.get(id);
+      if (!review || review.hidden) throw new HttpError(404, 'No such review.');
+      if (review.authorId !== user.id) throw new HttpError(403, 'That is not yours to delete.');
+      store.reviews.delete(id);
+      store.touch();
+      return { ok: true };
+    });
+
+    /**
+     * What the signed-in person could write a `helped` review about — the
+     * threads that prove it. Saves the client guessing.
+     */
+    app.get('/people/:handle/shared', async (request) => {
+      const user = requireUser(request);
+      const { handle } = z.object({ handle: z.string() }).parse(request.params);
+      const subject = store.userByHandle(handle);
+      if (!subject) throw new HttpError(404, 'No such member.');
+
+      const shared = [...store.threads.values()]
+        .filter((t) => !t.hidden && t.deletedAt === null)
+        .filter((t) => helpedMe(t.id, subject.id, user.id))
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, 20)
+        .map((t) => ({ id: t.id, title: t.title, isMeetup: t.meetup !== null }));
+      return { shared };
     });
 
     // --------------------------------------------------------------- waves
@@ -759,15 +888,19 @@ export function communityRoutes(options: CommunityOptions = {}) {
       limit(user, 'report', 20, 60 * 60 * 1000);
       const input = z
         .object({
-          kind: z.enum(['thread', 'reply', 'message']),
+          kind: z.enum(['thread', 'reply', 'message', 'review']),
           id: z.string(),
           reason: z.string().trim().max(280).optional(),
         })
         .parse(request.body);
-      let target: Thread | Reply | MeetupMessage;
+      let target: Thread | Reply | MeetupMessage | Review;
       if (input.kind === 'thread') target = threadOr404(input.id);
       else if (input.kind === 'reply') target = replyOr404(input.id);
-      else {
+      else if (input.kind === 'review') {
+        const review = store.reviews.get(input.id);
+        if (!review || review.hidden) throw new HttpError(404, 'No such review.');
+        target = review;
+      } else {
         // A private message is only reportable by the person it was sent to.
         const message = store.meetupMessages.get(input.id);
         if (!message) throw new HttpError(404, 'No such message.');

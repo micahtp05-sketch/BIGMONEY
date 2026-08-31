@@ -41,6 +41,10 @@ export interface User {
   neighborhood: string;
   /** Opt-in flag meaning "I'm around and happy to talk right now". */
   openToChat: boolean;
+  /** Self-declared trade, e.g. "Plumber". Empty when they have not said. */
+  trade: string;
+  /** Whether they say they do that trade for a living. Nobody checks. */
+  worksInTrade: boolean;
   /** Times another member marked one of this user's replies as the one that helped. */
   helpfulCount: number;
   createdAt: number;
@@ -56,6 +60,8 @@ export interface PublicUser {
   skills: string[];
   neighborhood: string;
   openToChat: boolean;
+  trade: string;
+  worksInTrade: boolean;
   helpfulCount: number;
   createdAt: number;
   lastSeenAt: number;
@@ -165,6 +171,41 @@ export interface Reply {
   deletedAt: number | null;
 }
 
+/**
+ * What one member says about another.
+ *
+ * Two kinds, and the difference between them is the whole point:
+ *
+ *  - `helped` is anchored to something that happened here — the person being
+ *    reviewed answered a question the reviewer asked, or hosted a get-together
+ *    the reviewer went to. The server checks that before accepting it.
+ *  - `hired` is about paid work done off Commons. Nothing about it can be
+ *    verified: not that the job happened, not that these two ever met. It is
+ *    accepted anyway because people want it, and it is labelled everywhere it
+ *    appears so a reader can weigh it accordingly.
+ *
+ * Reviews are always signed. There is no anonymous review, because an
+ * unverifiable claim about somebody's livelihood should at least come with a
+ * name attached to it.
+ */
+export type ReviewKind = 'helped' | 'hired';
+
+export interface Review {
+  id: string;
+  /** The member being reviewed. */
+  subjectId: string;
+  authorId: string;
+  kind: ReviewKind;
+  /** 1..5. */
+  rating: number;
+  body: string;
+  /** The thread that proves a `helped` review. Always null for `hired`. */
+  threadId: string | null;
+  createdAt: number;
+  reportedBy: string[];
+  hidden: boolean;
+}
+
 /** A nudge from one member to another. Public-by-design platform, private-ish nudge. */
 export interface Wave {
   id: string;
@@ -186,6 +227,7 @@ export interface CommunityData {
   replies: Reply[];
   waves: Wave[];
   meetupMessages: MeetupMessage[];
+  reviews: Review[];
 }
 
 /** Server-sent event payloads. One union so the client can switch exhaustively. */

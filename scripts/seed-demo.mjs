@@ -93,6 +93,7 @@ const mara = await member('mara', 'Mara Ellis', {
   neighborhood: 'Riverside',
   skills: ['plumbing', 'hvac', 'appliances'],
   openToChat: true,
+  trade: 'Heating engineer, retired',
 });
 const dev = await member('devraj', 'Dev Raj', {
   bio: 'Bad at gardening, learning in public. Two kids, one very old cat.',
@@ -109,6 +110,8 @@ const tom = await member('tomh', 'Tom Halloran', {
   bio: 'Carpenter. Will lend almost any tool if you bring it back sharp.',
   neighborhood: 'The Mills',
   skills: ['carpentry', 'tools', 'woodworking'],
+  trade: 'Carpenter',
+  worksInTrade: true,
 });
 const priya = await member('priyas', 'Priya Shah', {
   bio: 'New here. Walking most mornings if anyone wants company.',
@@ -264,6 +267,26 @@ await call('/channels/clubs/threads', {
     title: 'Book club this month: anything you did not finish',
     body: 'Reverse book club. Bring the book you gave up on and tell us where you stopped. No shame in it, that is rather the point.',
   },
+});
+
+// ---------------------------------------------------------------- reviews
+
+// One anchored to the radiator question the server can actually check, and two
+// about paid work that it cannot — which is the distinction on display.
+await call('/people/mara/reviews', {
+  method: 'POST', cookie: dev.cookie,
+  body: {
+    kind: 'helped', rating: 5, threadId: radiator.id,
+    body: 'Talked me through bleeding it step by step and would not let me call anyone. Took ten minutes.',
+  },
+});
+await call('/people/tomh/reviews', {
+  method: 'POST', cookie: joan.cookie,
+  body: { kind: 'hired', rating: 5, body: 'Put up shelves in the back room. Tidy, on time, cleared up after himself.' },
+});
+await call('/people/tomh/reviews', {
+  method: 'POST', cookie: priya.cookie,
+  body: { kind: 'hired', rating: 4, body: 'Good work on a door frame. Took a while to get a date out of him.' },
 });
 
 await call('/waves', {

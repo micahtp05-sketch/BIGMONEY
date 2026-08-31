@@ -624,6 +624,222 @@ describe('private meetup messages', () => {
   });
 });
 
+describe('reviews', () => {
+  let app: FastifyInstance;
+
+  before(async () => { app = await buildApp(); });
+  after(async () => { await app.close(); });
+
+  /** An asker, an answerer, and the question that connects them. */
+  async function askedAndAnswered(suffix: string) {
+    const asker = await signUp(app, `rasker${suffix}`);
+    const helper = await signUp(app, `rhelper${suffix}`);
+    const thread = (await app.inject({
+      method: 'POST', url: '/api/community/channels/home-repair/threads', headers: asUser(asker.cookie),
+      payload: { title: 'Dripping tap', body: 'It drips all night.' },
+    })).json().thread;
+    await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/replies`, headers: asUser(helper.cookie),
+      payload: { body: 'Replace the washer.' },
+    });
+    return { asker, helper, thread };
+  }
+
+  it('accepts a review of help that actually happened here', async () => {
+    const { asker, helper, thread } = await askedAndAnswered('a');
+    const res = await app.inject({
+      method: 'POST', url: '/api/community/people/rhelpera/reviews', headers: asUser(asker.cookie),
+      payload: { kind: 'helped', rating: 5, body: 'Fixed it in ten minutes.', threadId: thread.id },
+    });
+    assert.equal(res.statusCode, 201, res.body);
+    assert.equal(res.json().review.verified, true);
+    assert.equal(res.json().review.author.handle, 'raskera');
+    assert.equal(helper.user.handle, 'rhelpera');
+  });
+
+  it('refuses a "helped" review when no help was given', async () => {
+    await askedAndAnswered('b');
+    const stranger = await signUp(app, 'rstrangerb');
+    const other = (await app.inject({
+      method: 'POST', url: '/api/community/channels/tech-help/threads', headers: asUser(stranger.cookie),
+      payload: { title: 'Printer', body: 'It will not print.' },
+    })).json().thread;
+
+    // Their own thread, but the subject never answered it.
+    const res = await app.inject({
+      method: 'POST', url: '/api/community/people/rhelperb/reviews', headers: asUser(stranger.cookie),
+      payload: { kind: 'helped', rating: 1, body: 'Useless.', threadId: other.id },
+    });
+    assert.equal(res.statusCode, 403);
+  });
+
+  it('refuses a "helped" review pointing at somebody else\'s question', async () => {
+    const { thread } = await askedAndAnswered('c');
+    const bystander = await signUp(app, 'rbystanderc');
+    const res = await app.inject({
+      method: 'POST', url: '/api/community/people/rhelperc/reviews', headers: asUser(bystander.cookie),
+      payload: { kind: 'helped', rating: 5, body: 'Great.', threadId: thread.id },
+    });
+    assert.equal(res.statusCode, 403, 'watching an exchange is not being helped by it');
+  });
+
+  it('requires a thread for a "helped" review at all', async () => {
+    const { asker } = await askedAndAnswered('d');
+    const res = await app.inject({
+      method: 'POST', url: '/api/community/people/rhelperd/reviews', headers: asUser(asker.cookie),
+      payload: { kind: 'helped', rating: 5, body: 'Good.' },
+    });
+    assert.equal(res.statusCode, 400);
+  });
+
+  it('takes an unverifiable "hired" review, and marks it as one', async () => {
+    const customer = await signUp(app, 'rcustomer');
+    const trader = await signUp(app, 'rtrader');
+    const res = await app.inject({
+      method: 'POST', url: '/api/community/people/rtrader/reviews', headers: asUser(customer.cookie),
+      payload: { kind: 'hired', rating: 4, body: 'Rewired the kitchen, tidy job.' },
+    });
+    assert.equal(res.statusCode, 201, res.body);
+    assert.equal(res.json().review.verified, false, 'off-platform work cannot be verified');
+    assert.equal(res.json().review.threadId, null);
+    assert.ok(trader.user.id);
+  });
+
+  it('lets somebody host a get-together and be reviewed by whoever came', async () => {
+    const host = await signUp(app, 'rhost');
+    const guest = await signUp(app, 'rguest');
+    const thread = (await app.inject({
+      method: 'POST', url: '/api/community/channels/meetups/threads', headers: asUser(host.cookie),
+      payload: { title: 'Walk', body: 'Slow pace.', meetup: { startsAt: Date.now() + 86_400_000, capacity: 0 } },
+    })).json().thread;
+    await app.inject({ method: 'POST', url: `/api/community/threads/${thread.id}/rsvp`, headers: asUser(guest.cookie) });
+
+    const res = await app.inject({
+      method: 'POST', url: '/api/community/people/rhost/reviews', headers: asUser(guest.cookie),
+      payload: { kind: 'helped', rating: 5, body: 'Made me feel welcome.', threadId: thread.id },
+    });
+    assert.equal(res.statusCode, 201, res.body);
+    assert.equal(res.json().review.verified, true);
+  });
+
+  it('allows one review per person, and never of yourself', async () => {
+    const { asker, thread } = await askedAndAnswered('e');
+    const first = await app.inject({
+      method: 'POST', url: '/api/community/people/rhelpere/reviews', headers: asUser(asker.cookie),
+      payload: { kind: 'helped', rating: 5, body: 'Great.', threadId: thread.id },
+    });
+    assert.equal(first.statusCode, 201);
+    const second = await app.inject({
+      method: 'POST', url: '/api/community/people/rhelpere/reviews', headers: asUser(asker.cookie),
+      payload: { kind: 'hired', rating: 1, body: 'Changed my mind.' },
+    });
+    assert.equal(second.statusCode, 409, 'one voice, one review');
+
+    const self = await app.inject({
+      method: 'POST', url: '/api/community/people/raskere/reviews', headers: asUser(asker.cookie),
+      payload: { kind: 'hired', rating: 5, body: 'I am excellent.' },
+    });
+    assert.equal(self.statusCode, 400);
+  });
+
+  it('shows no average until a second person has spoken', async () => {
+    const trader = await signUp(app, 'ravg');
+    const one = await signUp(app, 'ravgone');
+    await app.inject({
+      method: 'POST', url: '/api/community/people/ravg/reviews', headers: asUser(one.cookie),
+      payload: { kind: 'hired', rating: 5, body: 'Excellent.' },
+    });
+    const single = await app.inject({ method: 'GET', url: '/api/community/people/ravg/reviews' });
+    assert.equal(single.json().summary.count, 1);
+    assert.equal(single.json().summary.average, null, 'one opinion is not an average');
+
+    const two = await signUp(app, 'ravgtwo');
+    await app.inject({
+      method: 'POST', url: '/api/community/people/ravg/reviews', headers: asUser(two.cookie),
+      payload: { kind: 'hired', rating: 2, body: 'Late twice.' },
+    });
+    const pair = await app.inject({ method: 'GET', url: '/api/community/people/ravg/reviews' });
+    assert.equal(pair.json().summary.average, 3.5);
+    assert.equal(pair.json().summary.unverified, 2);
+    assert.equal(pair.json().summary.verified, 0);
+  });
+
+  it('lists what the viewer could write a verified review about', async () => {
+    const { asker, thread } = await askedAndAnswered('f');
+    const res = await app.inject({
+      method: 'GET', url: '/api/community/people/rhelperf/shared', headers: asUser(asker.cookie),
+    });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json().shared.map((t: { id: string }) => t.id), [thread.id]);
+
+    const stranger = await signUp(app, 'rnothingf');
+    const empty = await app.inject({
+      method: 'GET', url: '/api/community/people/rhelperf/shared', headers: asUser(stranger.cookie),
+    });
+    assert.deepEqual(empty.json().shared, []);
+  });
+
+  it('carries a self-declared trade, and can filter the directory by it', async () => {
+    const plumber = await signUp(app, 'rplumber');
+    await app.inject({
+      method: 'PATCH', url: '/api/community/me', headers: asUser(plumber.cookie),
+      payload: { trade: 'Plumber', worksInTrade: true },
+    });
+    const res = await app.inject({ method: 'GET', url: '/api/community/people?trade=plumb' });
+    const handles = res.json().people.map((p: { handle: string }) => p.handle);
+    assert.ok(handles.includes('rplumber'));
+    assert.ok(res.json().people.every((p: { worksInTrade: boolean }) => p.worksInTrade));
+  });
+
+  it('lets the author delete their own review, and nobody else', async () => {
+    const { asker, thread } = await askedAndAnswered('g');
+    const id = (await app.inject({
+      method: 'POST', url: '/api/community/people/rhelperg/reviews', headers: asUser(asker.cookie),
+      payload: { kind: 'helped', rating: 3, body: 'Fine.', threadId: thread.id },
+    })).json().review.id;
+
+    const other = await signUp(app, 'rotherg');
+    const denied = await app.inject({ method: 'DELETE', url: `/api/community/reviews/${id}`, headers: asUser(other.cookie) });
+    assert.equal(denied.statusCode, 403);
+    const allowed = await app.inject({ method: 'DELETE', url: `/api/community/reviews/${id}`, headers: asUser(asker.cookie) });
+    assert.equal(allowed.statusCode, 200);
+    const gone = await app.inject({ method: 'GET', url: '/api/community/people/rhelperg/reviews' });
+    assert.equal(gone.json().summary.count, 0);
+  });
+
+  it('hides a review once enough members report it', async () => {
+    const trader = await signUp(app, 'rreported');
+    const liar = await signUp(app, 'rliar');
+    const id = (await app.inject({
+      method: 'POST', url: '/api/community/people/rreported/reviews', headers: asUser(liar.cookie),
+      payload: { kind: 'hired', rating: 1, body: 'Made up nonsense.' },
+    })).json().review.id;
+
+    for (const handle of ['rmod1', 'rmod2', 'rmod3']) {
+      const reporter = await signUp(app, handle);
+      await app.inject({
+        method: 'POST', url: '/api/community/report', headers: asUser(reporter.cookie),
+        payload: { kind: 'review', id, reason: 'untrue' },
+      });
+    }
+    const after = await app.inject({ method: 'GET', url: '/api/community/people/rreported/reviews' });
+    assert.equal(after.json().summary.count, 0, 'a reported review drops out of the score too');
+    assert.ok(trader.user.id);
+  });
+
+  it('rejects a rating outside one to five', async () => {
+    const customer = await signUp(app, 'rrange');
+    await signUp(app, 'rrangetarget');
+    for (const rating of [0, 6, 3.5]) {
+      const res = await app.inject({
+        method: 'POST', url: '/api/community/people/rrangetarget/reviews', headers: asUser(customer.cookie),
+        payload: { kind: 'hired', rating, body: 'Hmm.' },
+      });
+      assert.equal(res.statusCode, 400, `rating ${rating} should be refused`);
+    }
+  });
+});
+
 describe('anti-spam limits', () => {
   it('caps new accounts per IP', async () => {
     const app = Fastify({ logger: false });

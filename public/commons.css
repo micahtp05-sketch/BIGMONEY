@@ -19,6 +19,9 @@
   --social: #14663A;
   --danger: #A32217;
   --good: #14663A;
+  --warnstar: #8A5A06;
+  --warnink: #6B4605;
+  --warnbg: #FBF3E2;
 
   --focus: #12558F;
   --radius: 12px;
@@ -44,6 +47,9 @@
     --social: #6FD79B;
     --danger: #FF9E93;
     --good: #6FD79B;
+    --warnstar: #E5B45C;
+    --warnink: #F0CE93;
+    --warnbg: #2C2415;
     --focus: #6BAAE8;
     --shadow: 0 1px 2px rgba(0,0,0,.5), 0 8px 24px -14px rgba(0,0,0,.8);
   }
@@ -215,6 +221,19 @@ label.toggle input { width: 26px; height: 26px; min-height: 0; flex: none; accen
 .people { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
 .person { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
 .free { color: var(--good); font-weight: 600; font-size: 16px; }
+
+/* ----------------------------------------------------------------- reviews */
+.stars { display: inline-flex; align-items: center; gap: 4px; color: var(--warnstar); font-size: 18px; letter-spacing: 1px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.review { background: var(--surface); border: 1px solid var(--border); border-left: 5px solid var(--border-strong); border-radius: var(--radius); padding: 16px; }
+.review.verified { border-left-color: var(--good); }
+.tag.trade { border-color: var(--primary); color: var(--primary); font-weight: 600; }
+.tag.warnish { border-color: var(--warnstar); color: var(--warnink); }
+.warnbox {
+  background: var(--warnbg); border: 1px solid var(--warnstar); border-radius: var(--radius);
+  padding: 12px 14px; font-size: 16px; color: var(--warnink); margin: 0 0 14px;
+}
+.warnbox[hidden] { display: none; }
 
 /* ------------------------------------------------------------------ notice */
 .empty {
