@@ -45,6 +45,7 @@ const GHOST: PublicUser = {
   skills: [],
   neighborhood: '',
   openToChat: false,
+  role: 'member',
   trade: '',
   worksInTrade: false,
   helpfulCount: 0,

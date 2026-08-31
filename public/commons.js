@@ -16,6 +16,7 @@ const state = {
   me: null,
   categories: [],
   unreadHellos: 0,
+  queueSize: 0,
 };
 
 // ---------------------------------------------------------------- utilities
@@ -239,6 +240,7 @@ function renderNav() {
   ];
   if (state.me) {
     items.push(['#/hellos', 'Hellos', state.unreadHellos]);
+    if (state.me.role === 'moderator') items.push(['#/mod', 'Reports', state.queueSize]);
     items.push(['#/you', 'You']);
   } else {
     items.push(['#/in', 'Join']);
@@ -1057,6 +1059,26 @@ async function viewPerson(handle) {
         : null,
       user.helpfulCount ? el('p', { class: 'hint', style: 'margin:0 0 10px', text: `${user.helpfulCount} answers that worked.` }) : null,
       state.me && state.me.id !== user.id ? helloButton(user) : null,
+      state.me && state.me.role === 'moderator' && state.me.id !== user.id
+        ? el('button', {
+            class: 'quiet', style: 'margin-top:10px',
+            text: user.role === 'moderator' ? 'Remove as moderator' : 'Make a moderator',
+            onclick: async () => {
+              const next = user.role === 'moderator' ? 'member' : 'moderator';
+              const yes = await askDialog({
+                title: next === 'moderator' ? `Make ${user.displayName} a moderator?` : `Remove ${user.displayName} as a moderator?`,
+                help: 'Moderators can put back or remove anything that gets reported.',
+                confirmText: 'Yes',
+              });
+              if (!yes) return;
+              try {
+                await api(`/people/${encodeURIComponent(user.handle)}/role`, { method: 'POST', body: { role: next } });
+                say('Changed.');
+                route();
+              } catch (error) { say(error.message); }
+            },
+          })
+        : null,
     ),
     el('h2', { text: summary.count === 1 ? '1 review' : `${summary.count} reviews` }),
     summary.unverified > 0
@@ -1072,7 +1094,7 @@ async function viewPerson(handle) {
   );
 }
 
-function viewYou() {
+async function viewYou() {
   if (signInFirst('see your page')) return;
   const me = state.me;
   const name = el('input', { type: 'text', id: 'p-name', value: me.displayName, maxlength: 60 });
@@ -1137,6 +1159,7 @@ function viewYou() {
       el('label', { class: 'toggle', style: 'margin-bottom:16px' }, forLiving, 'I do this for a living'),
       el('div', { class: 'row' }, save), note,
     ),
+    await myModeration(),
   );
 }
 
@@ -1223,6 +1246,158 @@ function viewJoin() {
   );
 }
 
+/**
+ * The moderation queue.
+ *
+ * Three reports hide something automatically, which is fast but blunt: three
+ * people who agree with each other can silence anybody. This is where that gets
+ * looked at by a person. Keeping something puts it back and clears the reports,
+ * so the same crowd cannot simply report it again.
+ */
+async function viewModeration() {
+  if (signInFirst('see reports')) return;
+  if (state.me.role !== 'moderator') {
+    return show(
+      el('h1', { text: 'Reports' }),
+      el('p', { class: 'hint', text: 'Only moderators can see this.' }));
+  }
+  const [{ cases }, log] = await Promise.all([
+    api('/moderation/queue'),
+    api('/moderation/log').catch(() => ({ cases: [] })),
+  ]);
+  state.queueSize = cases.length;
+  renderNav();
+
+  show(
+    el('h1', { text: 'Reports' }),
+    el('p', { class: 'hint', text: cases.length
+      ? 'Content people have reported. Keeping it puts it back and clears the reports.'
+      : 'Nothing is waiting.' }),
+    cases.length
+      ? el('div', { class: 'stack' }, ...cases.map(caseCard))
+      : el('p', { class: 'empty', text: 'Nothing to look at. That is a good sign.' }),
+    log.cases.length
+      ? el('div', {},
+          el('h2', { text: 'Already decided' }),
+          el('div', { class: 'stack' }, ...log.cases.slice(0, 10).map(decidedCard)))
+      : null,
+  );
+}
+
+function caseCard(item) {
+  const decide = async (decision) => {
+    const reason = await askDialog({
+      title: decision === 'kept' ? 'Put this back?' : 'Remove this?',
+      label: 'Why',
+      help: decision === 'kept'
+        ? 'It becomes visible again and the reports are cleared.'
+        : 'It stays hidden. The author can reply once.',
+      confirmText: decision === 'kept' ? 'Put it back' : 'Remove it',
+      danger: decision === 'removed',
+      needsText: true,
+    });
+    if (reason === null) return;
+    try {
+      await api(`/moderation/${item.kind}/${item.targetId}/decide`, {
+        method: 'POST', body: { decision, reason: reason.trim() },
+      });
+      say(decision === 'kept' ? 'Put back.' : 'Removed.');
+      route();
+    } catch (error) { say(error.message); }
+  };
+
+  return el('div', { class: 'card', style: 'margin:0' },
+    el('p', { class: 'row', style: 'gap:8px; margin:0 0 8px' },
+      el('span', { class: 'tag', text: item.preview.where }),
+      item.hidden ? el('span', { class: 'tag warnish', text: 'Hidden right now' }) : null,
+      el('span', { class: 'tag', text: item.reports.length === 1 ? '1 report' : `${item.reports.length} reports` }),
+      item.appeal ? el('span', { class: 'tag trade', text: 'The author replied' }) : null),
+    el('h3', { text: item.preview.title }),
+    item.author ? el('p', { class: 'who', style: 'margin:4px 0 8px' },
+      el('a', { href: `#/u/${encodeURIComponent(item.author.handle)}`, text: item.author.displayName })) : null,
+    item.missing
+      ? el('p', { class: 'hint', text: 'The author deleted it.' })
+      : el('p', { class: 'body', style: 'margin:0', text: item.preview.body }),
+    el('div', { style: 'margin-top:12px' },
+      el('p', { class: 'hint', style: 'margin:0 0 4px', text: 'Why people reported it' }),
+      el('ul', { class: 'reasons' }, ...item.reports.map((r) =>
+        el('li', { text: r.reason || 'No reason given' }))),
+    ),
+    item.appeal
+      ? el('div', { class: 'appeal' },
+          el('p', { class: 'hint', style: 'margin:0 0 4px', text: 'The author says' }),
+          el('p', { style: 'margin:0', text: item.appeal }))
+      : null,
+    item.missing ? null : el('div', { class: 'row', style: 'margin-top:14px' },
+      el('button', { class: 'primary', text: 'Put it back', onclick: () => decide('kept') }),
+      el('button', { text: 'Remove it', onclick: () => decide('removed') })),
+  );
+}
+
+function decidedCard(item) {
+  return el('div', { class: 'card tight', style: 'margin:0' },
+    el('p', { class: 'row', style: 'gap:8px; margin:0 0 6px' },
+      el('span', { class: item.decision === 'kept' ? 'tag worked' : 'tag warnish',
+        text: item.decision === 'kept' ? 'Put back' : 'Removed' }),
+      item.decidedBy ? el('span', { class: 'hint', text: `by ${item.decidedBy.displayName}` }) : null,
+      item.decidedAt ? el('span', { class: 'hint', text: ago(item.decidedAt) }) : null),
+    el('p', { style: 'margin:0; font-weight:600', text: item.preview.title }),
+    item.decisionReason ? el('p', { class: 'hint', style: 'margin:4px 0 0', text: item.decisionReason }) : null,
+  );
+}
+
+/** What has happened to your own posts. Shown on your page. */
+async function myModeration() {
+  try {
+    const { mine } = await api('/moderation/mine');
+    if (!mine.length) return null;
+    return el('div', {},
+      el('h2', { text: 'Reported posts' }),
+      el('div', { class: 'stack' }, ...mine.map((item) => el('div', { class: 'card', style: 'margin:0' },
+        el('p', { class: 'row', style: 'gap:8px; margin:0 0 8px' },
+          item.hidden
+            ? el('span', { class: 'tag warnish', text: 'Hidden while we check it' })
+            : el('span', { class: 'tag worked', text: 'Still visible' }),
+          item.decision === 'removed' ? el('span', { class: 'tag warnish', text: 'Removed' }) : null,
+          item.decision === 'kept' ? el('span', { class: 'tag worked', text: 'Checked and kept' }) : null),
+        el('p', { style: 'margin:0 0 6px; font-weight:600', text: item.preview.title }),
+        item.reasons.length
+          ? el('div', {},
+              el('p', { class: 'hint', style: 'margin:0 0 4px', text: 'What people said' }),
+              el('ul', { class: 'reasons' }, ...item.reasons.map((r) => el('li', { text: r }))))
+          : null,
+        item.decisionReason
+          ? el('p', { class: 'hint', style: 'margin:8px 0 0', text: `A moderator said: ${item.decisionReason}` })
+          : null,
+        item.appeal
+          ? el('p', { class: 'hint', style: 'margin:8px 0 0', text: `You said: ${item.appeal}` })
+          : item.canAppeal
+            ? el('button', {
+                class: 'quiet', style: 'margin-top:10px', text: 'Reply to this',
+                onclick: async () => {
+                  const note = await askDialog({
+                    title: 'Reply about your post',
+                    label: 'What you want a moderator to know',
+                    help: 'It goes back to a moderator to look at again. You can send this once.',
+                    confirmText: 'Send',
+                    needsText: true,
+                  });
+                  if (note === null || !note.trim()) return;
+                  try {
+                    await api(`/moderation/${item.kind}/${item.targetId}/appeal`, { method: 'POST', body: { note: note.trim() } });
+                    say('Sent. A moderator will look again.');
+                    route();
+                  } catch (error) { say(error.message); }
+                },
+              })
+            : null,
+      ))),
+    );
+  } catch {
+    return null;
+  }
+}
+
 // ------------------------------------------------------------------ routing
 
 /**
@@ -1261,8 +1436,9 @@ async function renderRoute() {
     if (hash === '#/meet') return await viewMeetups();
     if (hash.startsWith('#/people/')) return await viewPeople(decodeURIComponent(hash.slice(9)));
     if (hash === '#/people') return await viewPeople();
-    if (hash === '#/you') return viewYou();
+    if (hash === '#/you') return await viewYou();
     if (hash === '#/hellos') return await viewHellos();
+    if (hash === '#/mod') return await viewModeration();
     if (hash === '#/in') return viewJoin();
     return viewHome();
   } catch (error) {
@@ -1340,8 +1516,9 @@ window.addEventListener('hashchange', route);
 
 (async function start() {
   try {
-    const { user } = await api('/me');
+    const { user, queueSize } = await api('/me');
     state.me = user;
+    state.queueSize = queueSize ?? 0;
   } catch { state.me = null; }
   renderAccount();
   await loadCategories();

@@ -330,6 +330,60 @@ await step('live update arrives over SSE', async () => {
   await other.close();
 });
 
+await step('a moderator can put back something three people hid', async () => {
+  // Post something, then have three members report it into hiding.
+  await page.goto(`${BASE}/#/c/chat`);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.fill('#msg', `Contested message ${unique}`);
+  await page.click('button:has-text("Send")');
+  await page.waitForSelector(`.msg .body:has-text("Contested message ${unique}")`);
+
+  const channel = await (await page.request.get(`${BASE}/api/community/channels/chat`)).json();
+  const target = channel.threads.find((t) => t.body.includes(`Contested message ${unique}`));
+  if (!target) throw new Error('the message just posted is missing');
+
+  for (const n of [1, 2, 3]) {
+    const reporter = await browser.newPage();
+    await reporter.request.post(`${BASE}/api/community/auth/signup`, {
+      data: { handle: `rep${n}${unique}`, password: 'a-good-long-password' },
+    });
+    const res = await reporter.request.post(`${BASE}/api/community/report`, {
+      data: { kind: 'thread', id: target.id, reason: `objection ${n}` },
+    });
+    if (!res.ok()) throw new Error(`report ${n} failed: ${res.status()}`);
+    await reporter.close();
+  }
+
+  // A moderator signs in and finds it, with the reasons attached.
+  const mod = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await mod.goto(BASE, { waitUntil: 'networkidle' });
+  const signedIn = await mod.request.post(`${BASE}/api/community/auth/login`, {
+    data: { handle: 'commonsmod', password: 'a-good-long-password' },
+  });
+  if (!signedIn.ok()) throw new Error('the seeded moderator could not sign in');
+  await mod.goto(`${BASE}/#/mod`);
+  await mod.reload({ waitUntil: 'networkidle' });
+  await mod.waitForSelector('main h1:has-text("Reports")');
+  await mod.waitForSelector('.card:has-text("objection 1")');
+  if (!(await mod.isVisible('.tag.warnish:has-text("Hidden right now")'))) {
+    throw new Error('the queue does not show that the post is hidden');
+  }
+
+  // Put it back, with a reason.
+  mod.once('dialog', () => {});
+  await mod.click('.card:has-text("objection 1") button:has-text("Put it back")');
+  await mod.waitForSelector('dialog[open]');
+  await mod.fill('#dialogInput', 'Blunt, but nothing against the rules.');
+  await mod.click('dialog button:has-text("Put it back")');
+  await mod.waitForSelector('.card:has-text("Put back")');
+  await assertNoPlaceholders('the moderation queue');
+
+  // It is readable again by an ordinary member.
+  const back = await page.request.get(`${BASE}/api/community/threads/${target.id}`);
+  if (!back.ok()) throw new Error('keeping it did not put it back');
+  await mod.close();
+});
+
 await step('a post renders as text, never as markup', async () => {
   await page.request.post(`${BASE}/api/community/channels/chat/threads`, {
     data: { title: `<img src=x onerror="window.__xss=1"> ${unique}`, body: '<script>window.__xss=1<\/script>' },

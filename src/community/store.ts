@@ -6,6 +6,7 @@ import type {
   CommunityData,
   Credential,
   MeetupMessage,
+  ModerationCase,
   PublicUser,
   Reply,
   Review,
@@ -26,6 +27,7 @@ const EMPTY: CommunityData = {
   waves: [],
   meetupMessages: [],
   reviews: [],
+  moderation: [],
 };
 
 /**
@@ -46,6 +48,7 @@ export class CommunityStore {
   readonly waves = new Map<string, Wave>();
   readonly meetupMessages = new Map<string, MeetupMessage>();
   readonly reviews = new Map<string, Review>();
+  readonly moderation = new Map<string, ModerationCase>();
 
   /** userId -> credential. */
   private readonly credentials = new Map<string, Credential>();
@@ -88,6 +91,7 @@ export class CommunityStore {
     for (const w of data.waves) this.waves.set(w.id, w);
     for (const m of data.meetupMessages ?? []) this.indexMeetupMessage(m);
     for (const r of data.reviews ?? []) this.indexReview(r);
+    for (const c of data.moderation ?? []) this.moderation.set(c.id, c);
   }
 
   /** Mark dirty and schedule a flush. Callers use this after every mutation. */
@@ -116,6 +120,7 @@ export class CommunityStore {
       waves: [...this.waves.values()],
       meetupMessages: [...this.meetupMessages.values()],
       reviews: [...this.reviews.values()],
+      moderation: [...this.moderation.values()],
     };
     mkdirSync(dirname(this.path), { recursive: true });
     const tmp = `${this.path}.${process.pid}.tmp`;
@@ -158,6 +163,7 @@ export class CommunityStore {
       skills: [],
       neighborhood: '',
       openToChat: false,
+      role: 'member',
       trade: '',
       worksInTrade: false,
       helpfulCount: 0,
@@ -287,6 +293,36 @@ export class CommunityStore {
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
+  // ------------------------------------------------------------ moderation
+
+  static caseId(kind: string, targetId: string): string {
+    return `${kind}:${targetId}`;
+  }
+
+  moderationCase(kind: string, targetId: string): ModerationCase | undefined {
+    return this.moderation.get(CommunityStore.caseId(kind, targetId));
+  }
+
+  putModerationCase(record: ModerationCase): ModerationCase {
+    this.moderation.set(record.id, record);
+    this.touch();
+    return record;
+  }
+
+  /** Cases nobody has ruled on yet — the queue, oldest report first. */
+  openCases(): ModerationCase[] {
+    return [...this.moderation.values()]
+      .filter((c) => c.decision === null && c.reports.length > 0)
+      .sort((a, b) => (a.reports[0]?.createdAt ?? 0) - (b.reports[0]?.createdAt ?? 0));
+  }
+
+  /** Rulings already made, most recent first. */
+  decidedCases(): ModerationCase[] {
+    return [...this.moderation.values()]
+      .filter((c) => c.decision !== null)
+      .sort((a, b) => (b.decidedAt ?? 0) - (a.decidedAt ?? 0));
+  }
+
   // --------------------------------------------------------------- reviews
 
   private indexReview(review: Review): void {
@@ -383,11 +419,11 @@ export class CommunityStore {
 /** Strip everything a member shouldn't see about another member. */
 export function publicUser(user: User): PublicUser {
   const {
-    id, handle, displayName, bio, skills, neighborhood, openToChat,
+    id, handle, displayName, bio, skills, neighborhood, openToChat, role,
     trade, worksInTrade, helpfulCount, createdAt, lastSeenAt,
   } = user;
   return {
-    id, handle, displayName, bio, skills, neighborhood, openToChat,
+    id, handle, displayName, bio, skills, neighborhood, openToChat, role,
     trade, worksInTrade, helpfulCount, createdAt, lastSeenAt,
   };
 }

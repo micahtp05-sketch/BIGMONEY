@@ -42,6 +42,7 @@ export function buildServer() {
     communityRoutes({
       dataPath: communityDataPath(),
       signupsPerHourPerIp: signupsPerHour(),
+      moderators: (process.env.COMMUNITY_MODERATORS ?? '').split(',').map((h) => h.trim()).filter(Boolean),
     }),
     { prefix: '/api/community' },
   );

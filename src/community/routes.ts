@@ -17,7 +17,7 @@ import { EventBus } from './events.ts';
 import { RateLimiter } from './ratelimit.ts';
 import { SEED_CHANNELS } from './seed.ts';
 import { CommunityStore, publicUser } from './store.ts';
-import type { MeetupMessage, Reply, Review, Thread, User } from './types.ts';
+import type { MeetupMessage, ModerationCase, ReportTarget, Reply, Review, Thread, User } from './types.ts';
 import { replyView, reviewView, summarise, threadView } from './views.ts';
 
 /** Reports from this many distinct members hide content pending review. */
@@ -87,6 +87,8 @@ export interface CommunityOptions {
    * raised, so it is a knob rather than a constant.
    */
   signupsPerHourPerIp?: number;
+  /** Handles that are moderators from the start. */
+  moderators?: string[];
 }
 
 class HttpError extends Error {
@@ -107,10 +109,20 @@ export function communityRoutes(options: CommunityOptions = {}) {
   const bus = options.bus ?? new EventBus();
   const limiter = new RateLimiter();
   const signupsPerHour = options.signupsPerHourPerIp ?? 5;
+  // Somebody has to be able to rule on the first report, and there is no way
+  // to appoint them from inside an empty instance.
+  const seededModerators = new Set((options.moderators ?? []).map((h) => h.trim().toLowerCase()).filter(Boolean));
 
   // A fresh instance opens with somewhere to post rather than a blank page.
   if (store.channels.size === 0) {
     for (const seed of SEED_CHANNELS) store.addChannel({ ...seed, createdBy: null });
+  }
+  for (const handle of seededModerators) {
+    const existing = store.userByHandle(handle);
+    if (existing && existing.role !== 'moderator') {
+      existing.role = 'moderator';
+      store.touch();
+    }
   }
 
   return async function plugin(app: FastifyInstance): Promise<void> {
@@ -160,10 +172,47 @@ export function communityRoutes(options: CommunityOptions = {}) {
       return reply;
     }
 
-    /** Record a report and hide the content once enough distinct people agree. */
-    function report(target: Thread | Reply | MeetupMessage | Review, reporterId: string): boolean {
+    type Reportable = Thread | Reply | MeetupMessage | Review;
+
+    /**
+     * Record a report, and hide the content once enough distinct people agree.
+     *
+     * Two things are new next to a bare count. The reason is kept, so a
+     * moderator can see what people objected to rather than only that they
+     * did. And a piece of content a moderator has already kept is never
+     * auto-hidden again — otherwise the same three people could re-report
+     * their way straight back to the outcome a moderator just overturned.
+     */
+    function report(
+      kind: ReportTarget,
+      target: Reportable,
+      reporterId: string,
+      reason: string,
+    ): boolean {
+      const id = CommunityStore.caseId(kind, target.id);
+      const existing = store.moderationCase(kind, target.id);
+      const record: ModerationCase = existing ?? {
+        id,
+        kind,
+        targetId: target.id,
+        authorId: target.authorId,
+        reports: [],
+        appeal: null,
+        appealAt: null,
+        decision: null,
+        decidedBy: null,
+        decidedAt: null,
+        decisionReason: '',
+      };
+      if (!record.reports.some((r) => r.reporterId === reporterId)) {
+        record.reports.push({ reporterId, reason, createdAt: Date.now() });
+      }
+      store.putModerationCase(record);
+
       if (!target.reportedBy.includes(reporterId)) target.reportedBy.push(reporterId);
-      if (target.reportedBy.length >= HIDE_AFTER_REPORTS) target.hidden = true;
+      if (record.decision === null && target.reportedBy.length >= HIDE_AFTER_REPORTS) {
+        target.hidden = true;
+      }
       store.touch();
       return target.hidden;
     }
@@ -209,6 +258,10 @@ export function communityRoutes(options: CommunityOptions = {}) {
         displayName: input.displayName?.trim() || input.handle.trim(),
         credential,
       });
+      if (seededModerators.has(user.handle)) {
+        user.role = 'moderator';
+        store.touch();
+      }
       return sendSession(reply, user);
     });
 
@@ -246,6 +299,7 @@ export function communityRoutes(options: CommunityOptions = {}) {
       return {
         user: user ? publicUser(user) : null,
         unreadMessages: user ? store.unreadMeetupMessages(user.id) : 0,
+        queueSize: user?.role === 'moderator' ? store.openCases().length : 0,
       };
     });
 
@@ -918,8 +972,190 @@ export function communityRoutes(options: CommunityOptions = {}) {
         target = message;
       }
       if (target.authorId === user.id) throw new HttpError(400, 'Delete your own post instead.');
-      const hidden = report(target, user.id);
+      const hidden = report(input.kind, target, user.id, input.reason?.trim() ?? '');
       return { ok: true, hidden };
+    });
+
+    // ---------------------------------------------------------- moderation
+
+    function requireModerator(request: FastifyRequest): User {
+      const user = requireUser(request);
+      if (user.role !== 'moderator') throw new HttpError(403, 'Only moderators can do that.');
+      return user;
+    }
+
+    /** Find a reported thing by kind, whether or not it is currently hidden. */
+    function targetFor(kind: ReportTarget, id: string): Reportable | undefined {
+      if (kind === 'thread') {
+        const t = store.threads.get(id);
+        return t && t.deletedAt === null ? t : undefined;
+      }
+      if (kind === 'reply') {
+        const r = store.replies.get(id);
+        return r && r.deletedAt === null ? r : undefined;
+      }
+      if (kind === 'message') return store.meetupMessages.get(id);
+      return store.reviews.get(id);
+    }
+
+    /** Enough of the content to rule on it, without leaking a private channel. */
+    function preview(record: ModerationCase): { title: string; body: string; where: string } {
+      const target = targetFor(record.kind, record.targetId);
+      if (!target) return { title: 'Deleted by its author', body: '', where: record.kind };
+      if (record.kind === 'thread') {
+        const thread = target as Thread;
+        const channel = store.channels.get(thread.channelId);
+        return { title: thread.title, body: thread.body, where: channel?.name ?? 'a category' };
+      }
+      if (record.kind === 'reply') {
+        const reply = target as Reply;
+        const thread = store.threads.get(reply.threadId);
+        return { title: 'An answer', body: reply.body, where: thread?.title ?? 'a post' };
+      }
+      if (record.kind === 'review') {
+        const review = target as Review;
+        const subject = store.users.get(review.subjectId);
+        return {
+          title: `A ${review.rating}-star review of ${subject?.displayName ?? 'somebody'}`,
+          body: review.body,
+          where: review.kind === 'helped' ? 'help given here' : 'paid work, unchecked',
+        };
+      }
+      // A private message is shown only because somebody in it asked for that.
+      return { title: 'A private message about a get-together', body: (target as MeetupMessage).body, where: 'private' };
+    }
+
+    function caseView(record: ModerationCase) {
+      const target = targetFor(record.kind, record.targetId);
+      const author = store.users.get(record.authorId);
+      const decidedBy = record.decidedBy ? store.users.get(record.decidedBy) : null;
+      return {
+        id: record.id,
+        kind: record.kind,
+        targetId: record.targetId,
+        author: author ? publicUser(author) : null,
+        hidden: target ? target.hidden : false,
+        missing: target === undefined,
+        preview: preview(record),
+        reports: record.reports.map((r) => {
+          const reporter = store.users.get(r.reporterId);
+          return {
+            reason: r.reason,
+            createdAt: r.createdAt,
+            reporter: reporter ? publicUser(reporter) : null,
+          };
+        }),
+        appeal: record.appeal,
+        appealAt: record.appealAt,
+        decision: record.decision,
+        decisionReason: record.decisionReason,
+        decidedAt: record.decidedAt,
+        decidedBy: decidedBy ? publicUser(decidedBy) : null,
+      };
+    }
+
+    app.get('/moderation/queue', async (request) => {
+      requireModerator(request);
+      return { cases: store.openCases().map(caseView) };
+    });
+
+    /** What has been ruled on, so decisions are visible rather than private. */
+    app.get('/moderation/log', async (request) => {
+      requireModerator(request);
+      return { cases: store.decidedCases().slice(0, 50).map(caseView) };
+    });
+
+    app.post('/moderation/:kind/:id/decide', async (request) => {
+      const moderator = requireModerator(request);
+      const params = z
+        .object({ kind: z.enum(['thread', 'reply', 'message', 'review']), id: z.string() })
+        .parse(request.params);
+      const input = z
+        .object({ decision: z.enum(['kept', 'removed']), reason: z.string().trim().max(500).optional() })
+        .parse(request.body);
+
+      const record = store.moderationCase(params.kind, params.id);
+      if (!record) throw new HttpError(404, 'Nothing was reported about that.');
+      const target = targetFor(params.kind, params.id);
+
+      record.decision = input.decision;
+      record.decidedBy = moderator.id;
+      record.decidedAt = Date.now();
+      record.decisionReason = input.reason ?? '';
+
+      if (target) {
+        if (input.decision === 'kept') {
+          // Put it back, and clear the reports so the count cannot creep back
+          // to the threshold on the strength of the ones already cast.
+          target.hidden = false;
+          target.reportedBy = [];
+        } else {
+          target.hidden = true;
+        }
+      }
+      store.putModerationCase(record);
+      return { case: caseView(record) };
+    });
+
+    /** The author's one note back. It does not overturn anything by itself. */
+    app.post('/moderation/:kind/:id/appeal', async (request) => {
+      const user = requireUser(request);
+      const params = z
+        .object({ kind: z.enum(['thread', 'reply', 'message', 'review']), id: z.string() })
+        .parse(request.params);
+      const input = z.object({ note: z.string().trim().min(1).max(1000) }).parse(request.body);
+
+      const record = store.moderationCase(params.kind, params.id);
+      if (!record) throw new HttpError(404, 'Nothing was reported about that.');
+      if (record.authorId !== user.id) throw new HttpError(403, 'That is not yours.');
+      if (record.appeal !== null) throw new HttpError(409, 'You have already replied to this.');
+
+      record.appeal = input.note;
+      record.appealAt = Date.now();
+      // A note reopens the case, so somebody looks again.
+      record.decision = null;
+      record.decidedBy = null;
+      record.decidedAt = null;
+      store.putModerationCase(record);
+      return { ok: true };
+    });
+
+    /** Anything of the signed-in person's that is hidden or was reported. */
+    app.get('/moderation/mine', async (request) => {
+      const user = requireUser(request);
+      const mine = [...store.moderation.values()]
+        .filter((c) => c.authorId === user.id)
+        .sort((a, b) => (b.reports[0]?.createdAt ?? 0) - (a.reports[0]?.createdAt ?? 0))
+        .map((record) => {
+          const target = targetFor(record.kind, record.targetId);
+          return {
+            kind: record.kind,
+            targetId: record.targetId,
+            preview: preview(record),
+            hidden: target ? target.hidden : false,
+            decision: record.decision,
+            decisionReason: record.decisionReason,
+            canAppeal: record.appeal === null,
+            appeal: record.appeal,
+            // Reasons are shown, reporters are not. Naming them invites reprisal.
+            reasons: record.reports.map((r) => r.reason).filter(Boolean),
+          };
+        });
+      return { mine };
+    });
+
+    app.post('/people/:handle/role', async (request) => {
+      const moderator = requireModerator(request);
+      const { handle } = z.object({ handle: z.string() }).parse(request.params);
+      const input = z.object({ role: z.enum(['member', 'moderator']) }).parse(request.body);
+      const target = store.userByHandle(handle);
+      if (!target) throw new HttpError(404, 'No such member.');
+      if (target.id === moderator.id) {
+        throw new HttpError(400, 'Ask another moderator to change your own role.');
+      }
+      target.role = input.role;
+      store.touch();
+      return { user: publicUser(target) };
     });
 
     // -------------------------------------------------------------- stream

@@ -32,8 +32,22 @@ async function signUp(app: FastifyInstance, handle: string) {
   assert.ok(raw, 'signup must set a session cookie');
   return {
     cookie: raw.split(';')[0] as string,
-    user: res.json().user as { id: string; handle: string; displayName: string },
+    user: res.json().user as { id: string; handle: string; displayName: string; role: string },
   };
+}
+
+/** Sign in as an existing member and return the cookie header to send. */
+async function signIn(app: FastifyInstance, handle: string): Promise<string> {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/community/auth/login',
+    payload: { handle, password: 'a-good-long-password' },
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const setCookie = res.headers['set-cookie'];
+  const raw = Array.isArray(setCookie) ? setCookie[0] : setCookie;
+  assert.ok(raw, 'login must set a session cookie');
+  return raw.split(';')[0] as string;
 }
 
 const asUser = (cookie: string) => ({ cookie });
@@ -945,6 +959,188 @@ describe('ranking providers by their reviews', () => {
     }
     const after = scoreOf((await app.inject({ method: 'GET', url: '/api/community/people' })).json().people, 'targeted');
     assert.equal(after, before, 'hiding a review must undo its effect on the ranking');
+  });
+});
+
+describe('moderation', () => {
+  let app: FastifyInstance;
+
+  /** An app whose first moderator is seeded, as a real deployment would be. */
+  async function buildWithModerator() {
+    const instance = Fastify({ logger: false });
+    await instance.register(
+      communityRoutes({ dataPath: null, signupsPerHourPerIp: 1000, moderators: ['Mod'] }),
+      { prefix: '/api/community' },
+    );
+    await instance.ready();
+    return instance;
+  }
+
+  before(async () => { app = await buildWithModerator(); });
+  after(async () => { await app.close(); });
+
+  /** A post, hidden by three reports, ready to be ruled on. */
+  async function reportedPost(tag: string) {
+    const author = await signUp(app, `mauthor${tag}`);
+    const thread = (await app.inject({
+      method: 'POST', url: '/api/community/channels/chat/threads', headers: asUser(author.cookie),
+      payload: { title: `Contested ${tag}`, body: 'Something people argued about.' },
+    })).json().thread;
+    for (const n of [1, 2, 3]) {
+      const reporter = await signUp(app, `mrep${tag}${n}`);
+      await app.inject({
+        method: 'POST', url: '/api/community/report', headers: asUser(reporter.cookie),
+        payload: { kind: 'thread', id: thread.id, reason: `reason ${n}` },
+      });
+    }
+    return { author, thread };
+  }
+
+  it('makes a seeded handle a moderator when they sign up', async () => {
+    const mod = await signUp(app, 'mod');
+    assert.equal(mod.user.role, 'moderator');
+    const me = await app.inject({ method: 'GET', url: '/api/community/me', headers: asUser(mod.cookie) });
+    assert.equal(me.json().user.role, 'moderator');
+  });
+
+  it('keeps the queue away from ordinary members', async () => {
+    const member = await signUp(app, 'mplain');
+    const denied = await app.inject({ method: 'GET', url: '/api/community/moderation/queue', headers: asUser(member.cookie) });
+    assert.equal(denied.statusCode, 403);
+    const anon = await app.inject({ method: 'GET', url: '/api/community/moderation/queue' });
+    assert.equal(anon.statusCode, 401);
+  });
+
+  it('shows the queue what people actually objected to', async () => {
+    const { thread } = await reportedPost('a');
+    const queue = await app.inject({
+      method: 'GET', url: '/api/community/moderation/queue',
+      headers: asUser(await signIn(app, 'mod')),
+    });
+    assert.equal(queue.statusCode, 200);
+    const found = queue.json().cases.find((c: { targetId: string }) => c.targetId === thread.id);
+    assert.ok(found, 'the reported post is not in the queue');
+    assert.equal(found.hidden, true);
+    assert.deepEqual(found.reports.map((r: { reason: string }) => r.reason).sort(), ['reason 1', 'reason 2', 'reason 3']);
+    assert.equal(found.preview.title, 'Contested a');
+  });
+
+  it('restores what a moderator keeps, and stops it being re-hidden', async () => {
+    const { thread } = await reportedPost('b');
+    const modCookie = await signIn(app, 'mod');
+
+    const before = await app.inject({ method: 'GET', url: `/api/community/threads/${thread.id}` });
+    assert.equal(before.statusCode, 404, 'a hidden post is not readable');
+
+    const kept = await app.inject({
+      method: 'POST', url: `/api/community/moderation/thread/${thread.id}/decide`, headers: asUser(modCookie),
+      payload: { decision: 'kept', reason: 'Rude but within the rules.' },
+    });
+    assert.equal(kept.statusCode, 200, kept.body);
+
+    const after = await app.inject({ method: 'GET', url: `/api/community/threads/${thread.id}` });
+    assert.equal(after.statusCode, 200, 'keeping it must put it back');
+
+    // The same crowd tries again.
+    for (const n of [4, 5, 6]) {
+      const reporter = await signUp(app, `mreb${n}`);
+      await app.inject({
+        method: 'POST', url: '/api/community/report', headers: asUser(reporter.cookie),
+        payload: { kind: 'thread', id: thread.id, reason: 'still cross' },
+      });
+    }
+    const stillThere = await app.inject({ method: 'GET', url: `/api/community/threads/${thread.id}` });
+    assert.equal(stillThere.statusCode, 200, 'a ruling must not be overturnable by re-reporting');
+  });
+
+  it('removes what a moderator removes', async () => {
+    const { thread } = await reportedPost('c');
+    const modCookie = await signIn(app, 'mod');
+
+    await app.inject({
+      method: 'POST', url: `/api/community/moderation/thread/${thread.id}/decide`, headers: asUser(modCookie),
+      payload: { decision: 'removed', reason: 'Abusive.' },
+    });
+    const gone = await app.inject({ method: 'GET', url: `/api/community/threads/${thread.id}` });
+    assert.equal(gone.statusCode, 404);
+
+    const log = await app.inject({ method: 'GET', url: '/api/community/moderation/log', headers: asUser(modCookie) });
+    const entry = log.json().cases.find((c: { targetId: string }) => c.targetId === thread.id);
+    assert.equal(entry.decision, 'removed');
+    assert.equal(entry.decisionReason, 'Abusive.');
+    assert.equal(entry.decidedBy.handle, 'mod');
+  });
+
+  it('tells the author their post is hidden, and why people said so', async () => {
+    const { author, thread } = await reportedPost('d');
+    const mine = await app.inject({ method: 'GET', url: '/api/community/moderation/mine', headers: asUser(author.cookie) });
+    assert.equal(mine.statusCode, 200);
+    const entry = mine.json().mine.find((m: { targetId: string }) => m.targetId === thread.id);
+    assert.ok(entry);
+    assert.equal(entry.hidden, true);
+    assert.deepEqual(entry.reasons.sort(), ['reason 1', 'reason 2', 'reason 3']);
+    // Reasons yes, names no — naming reporters invites reprisal.
+    assert.equal(JSON.stringify(entry).includes('mrepd1'), false);
+  });
+
+  it('reopens a case when the author replies, once', async () => {
+    const { author, thread } = await reportedPost('e');
+    const modCookie = await signIn(app, 'mod');
+    await app.inject({
+      method: 'POST', url: `/api/community/moderation/thread/${thread.id}/decide`, headers: asUser(modCookie),
+      payload: { decision: 'removed', reason: 'Looks abusive.' },
+    });
+
+    const appeal = await app.inject({
+      method: 'POST', url: `/api/community/moderation/thread/${thread.id}/appeal`, headers: asUser(author.cookie),
+      payload: { note: 'It was a quote from the person I was answering.' },
+    });
+    assert.equal(appeal.statusCode, 200);
+
+    const queue = await app.inject({ method: 'GET', url: '/api/community/moderation/queue', headers: asUser(modCookie) });
+    const back = queue.json().cases.find((c: { targetId: string }) => c.targetId === thread.id);
+    assert.ok(back, 'an appeal must put the case back in front of somebody');
+    assert.match(back.appeal, /quote/);
+
+    const twice = await app.inject({
+      method: 'POST', url: `/api/community/moderation/thread/${thread.id}/appeal`, headers: asUser(author.cookie),
+      payload: { note: 'Again.' },
+    });
+    assert.equal(twice.statusCode, 409);
+  });
+
+  it('lets nobody but the author appeal', async () => {
+    const { thread } = await reportedPost('f');
+    const stranger = await signUp(app, 'mstranger');
+    const res = await app.inject({
+      method: 'POST', url: `/api/community/moderation/thread/${thread.id}/appeal`, headers: asUser(stranger.cookie),
+      payload: { note: 'Let them off.' },
+    });
+    assert.equal(res.statusCode, 403);
+  });
+
+  it('promotes and demotes, but never yourself', async () => {
+    const modCookie = await signIn(app, 'mod');
+    const helper = await signUp(app, 'mhelper');
+
+    const promoted = await app.inject({
+      method: 'POST', url: '/api/community/people/mhelper/role', headers: asUser(modCookie),
+      payload: { role: 'moderator' },
+    });
+    assert.equal(promoted.statusCode, 200);
+    assert.equal(promoted.json().user.role, 'moderator');
+
+    const self = await app.inject({
+      method: 'POST', url: '/api/community/people/mod/role', headers: asUser(modCookie),
+      payload: { role: 'member' },
+    });
+    assert.equal(self.statusCode, 400, 'a moderator must not be able to lock themselves out or in');
+
+    const byMember = await app.inject({
+      method: 'POST', url: '/api/community/people/mod/role', headers: asUser((await signUp(app, 'mnobody')).cookie),
+      payload: { role: 'member' },
+    });
+    assert.equal(byMember.statusCode, 403);
   });
 });
 

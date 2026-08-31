@@ -86,6 +86,7 @@ Installing Commons as an app on a phone or a computer is covered in
 | `PORT` | `3000` | HTTP port. |
 | `COMMUNITY_DATA` | `data/community.json` | Where Commons persists. `:memory:` runs without a file. |
 | `COMMUNITY_SIGNUPS_PER_HOUR` | `5` | New accounts allowed per hour from one IP. |
+| `COMMUNITY_MODERATORS` | — | Handles that are moderators from the start, comma separated. |
 
 ## Estimator API
 
@@ -144,9 +145,9 @@ navigable).
   members page, and any member can send a wave — one per person per day, so it can
   never become a way to pester.
 - **Live updates.** New threads, replies, RSVPs and presence changes arrive over SSE.
-- **Moderation.** Anyone can report; three distinct reporters hide a post pending
-  review. One person cannot hide another's post alone, and authors can always delete
-  their own.
+- **Moderation.** Anyone can report, with a reason. Three distinct reporters hide
+  something automatically; a moderator then rules on it, and that ruling sticks. See
+  [How moderation works](#how-moderation-works).
 
 ### Commons API
 
@@ -177,7 +178,13 @@ GET    /people/:handle/shared       what the viewer could write a checked review
 DELETE /reviews/:id                 author only
 POST   /waves | GET /waves | POST /waves/read
 GET    /search?q=
-POST   /report                     {kind: thread|reply, id, reason}
+POST   /report                     {kind: thread|reply|message|review, id, reason?}
+GET    /moderation/queue           moderator: open cases, with the reasons given
+GET    /moderation/log             moderator: recent rulings
+POST   /moderation/:kind/:id/decide   moderator: {decision: kept|removed, reason?}
+POST   /moderation/:kind/:id/appeal   author: {note} — one note, reopens the case
+GET    /moderation/mine            what has happened to your own posts
+POST   /people/:handle/role        moderator: {role: member|moderator}
 GET    /stream                     server-sent events
 GET    /health
 ```
@@ -191,6 +198,33 @@ facts and no judgements: what a member *says* they know (shown with "says they k
 wording, next to the answer where it can be weighed), and how many times an asker
 marked one of their answers as the one that worked. Credit follows the mark, so
 un-marking takes the point back.
+
+**How moderation works.** Three reports hide something within seconds. That is fast,
+and blunt: three people who agree with each other can silence anybody. So the automatic
+hide is a holding action, not a verdict, and a moderator rules afterwards.
+
+The reason somebody types when reporting is now kept. It used to be accepted and thrown
+away, which made a queue impossible to work — a moderator could see that three people
+objected but not what to.
+
+A ruling sticks. **Put it back** restores the content and clears the reports, and from
+then on that item is never auto-hidden again, so the same three people cannot simply
+report their way back to the outcome that was just overturned. **Remove it** keeps it
+hidden, with a reason recorded against a named moderator in a log other moderators can
+read.
+
+An author is told. `/moderation/mine` shows them what of theirs is hidden and what
+people said about it — the reasons, never the reporters, because naming them invites
+reprisal. They can send one note back, which reopens the case so somebody looks again.
+
+The first moderator comes from `COMMUNITY_MODERATORS`, because nobody can appoint one
+from inside an empty instance. After that moderators appoint each other; nobody can
+change their own role, so a moderator can neither lock themselves in nor accidentally
+lock everyone out.
+
+**Still missing:** there is no way to suspend or block a member, only to act on
+individual pieces of content, so somebody determined to be a nuisance has to be handled
+one post at a time.
 
 **Why reviews look like this.** A `helped` review has to point at the thread it came
 from, and the server checks that the person being reviewed actually answered the

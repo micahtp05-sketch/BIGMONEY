@@ -12,6 +12,8 @@
 
 export type ChannelKind = 'help' | 'group' | 'social';
 
+export type UserRole = 'member' | 'moderator';
+
 export interface Channel {
   id: string;
   /** URL-safe name, unique. */
@@ -41,6 +43,12 @@ export interface User {
   neighborhood: string;
   /** Opt-in flag meaning "I'm around and happy to talk right now". */
   openToChat: boolean;
+  /**
+   * Members can do everything ordinary; moderators can additionally rule on
+   * reported content. Seeded from COMMUNITY_MODERATORS, and granted by an
+   * existing moderator after that.
+   */
+  role: UserRole;
   /** Self-declared trade, e.g. "Plumber". Empty when they have not said. */
   trade: string;
   /** Whether they say they do that trade for a living. Nobody checks. */
@@ -60,6 +68,7 @@ export interface PublicUser {
   skills: string[];
   neighborhood: string;
   openToChat: boolean;
+  role: UserRole;
   trade: string;
   worksInTrade: boolean;
   helpfulCount: number;
@@ -206,6 +215,45 @@ export interface Review {
   hidden: boolean;
 }
 
+/** Everything a member can report. */
+export type ReportTarget = 'thread' | 'reply' | 'message' | 'review';
+
+export type ModerationDecision = 'kept' | 'removed';
+
+export interface Report {
+  reporterId: string;
+  reason: string;
+  createdAt: number;
+}
+
+/**
+ * One piece of reported content, and what happened to it.
+ *
+ * Reports used to be a bare count on the content itself, and the reason a
+ * person typed was thrown away — which made a queue impossible to work, since
+ * a moderator could see that three people objected but not what to.
+ *
+ * A case also makes a ruling stick. Once a moderator has kept something,
+ * reports no longer hide it automatically, so three people cannot simply
+ * re-report their way to the same outcome.
+ */
+export interface ModerationCase {
+  /** `${kind}:${targetId}` — one case per piece of content. */
+  id: string;
+  kind: ReportTarget;
+  targetId: string;
+  /** Who the content belongs to, kept here so the queue needs no lookups. */
+  authorId: string;
+  reports: Report[];
+  /** The author's one note back. Null until they write it. */
+  appeal: string | null;
+  appealAt: number | null;
+  decision: ModerationDecision | null;
+  decidedBy: string | null;
+  decidedAt: number | null;
+  decisionReason: string;
+}
+
 /** A nudge from one member to another. Public-by-design platform, private-ish nudge. */
 export interface Wave {
   id: string;
@@ -228,6 +276,7 @@ export interface CommunityData {
   waves: Wave[];
   meetupMessages: MeetupMessage[];
   reviews: Review[];
+  moderation: ModerationCase[];
 }
 
 /** Server-sent event payloads. One union so the client can switch exhaustively. */

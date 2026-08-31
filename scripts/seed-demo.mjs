@@ -119,6 +119,14 @@ const priya = await member('priyas', 'Priya Shah', {
   skills: ['gardening'],
   openToChat: true,
 });
+// A moderator, so the reports queue is reachable in the demo. Only becomes one
+// if the server was started with COMMUNITY_MODERATORS=commonsmod.
+const moderator = await member('commonsmod', 'Sam Okonkwo', {
+  bio: 'Keeps an eye on reports. Ask me if something looks wrong.',
+  neighborhood: 'Riverside',
+  skills: [],
+});
+
 const eli = await member('elik', 'Eli Kowalski', {
   bio: 'Night shifts, so I am awake when nobody else is.',
   neighborhood: 'The Mills',
@@ -296,6 +304,8 @@ await call('/waves', {
 
 // ------------------------------------------------------------------- the recap
 
+if (moderator) { /* referenced so the account is obviously deliberate */ }
+
 const { data: after } = await call('/health');
 console.log(`
 Seeded ${BASE}
@@ -308,6 +318,7 @@ Sign in as any of these — the password for all of them is "${PASSWORD}":
   priyas   hosts the Saturday walk, open to chat
   tomh     lends out tools
   elik     posts at odd hours
+  commonsmod  a moderator, if COMMUNITY_MODERATORS=commonsmod was set
 
 Worth a look:
   /#/c/home-repair    an accepted answer, and a repair-or-replace question with a price estimate
