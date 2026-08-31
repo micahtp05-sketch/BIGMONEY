@@ -4,12 +4,30 @@ import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import { aggregate } from './aggregate.ts';
+import { communityRoutes } from './community/routes.ts';
 import { gatherListings, sourcesFromEnv } from './sources/index.ts';
 import type { EstimateResponse } from './types.ts';
 import { RefusalError, identifyItem } from './vision.ts';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const ACCEPTED = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+
+/** Where Commons persists. Set COMMUNITY_DATA=:memory: to run without a file. */
+function communityDataPath(): string | null {
+  // An empty value means "unset" — .env files carry blank keys all the time,
+  // and silently running without persistence would be the worst reading of it.
+  const configured = process.env.COMMUNITY_DATA?.trim();
+  if (!configured) return fileURLToPath(new URL('../data/community.json', import.meta.url));
+  return configured === ':memory:' ? null : configured;
+}
+
+/** Signup cap, where 0 legitimately means "this instance is closed". */
+function signupsPerHour(): number | undefined {
+  const raw = process.env.COMMUNITY_SIGNUPS_PER_HOUR?.trim();
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
 
 export function buildServer() {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } });
@@ -20,6 +38,13 @@ export function buildServer() {
   app.register(fastifyStatic, {
     root: fileURLToPath(new URL('../public', import.meta.url)),
   });
+  app.register(
+    communityRoutes({
+      dataPath: communityDataPath(),
+      signupsPerHourPerIp: signupsPerHour(),
+    }),
+    { prefix: '/api/community' },
+  );
 
   app.get('/api/health', async () => ({
     ok: true,
