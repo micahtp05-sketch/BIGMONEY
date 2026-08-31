@@ -1,33 +1,31 @@
 /**
- * Commons — a single-page client over /api/community.
+ * Commons — the whole client.
  *
- * No framework and no build step, matching the rest of this repo. Two rules
- * hold the whole thing together:
- *   1. Everything the server sends is rendered as text, never as markup, so a
- *      post can never inject script into someone else's browser.
- *   2. Views are pure functions of route + fetched data; live events just
- *      re-run the current view.
+ * Built to docs/simple-ui.md. Three rules that shape everything here:
+ *   1. Server text is only ever set with textContent, so a post can never
+ *      inject markup into somebody else's browser.
+ *   2. Nodes are built through el(), which drops falsy children — passing null
+ *      straight to Element.append() renders the word "null" on the page.
+ *   3. No prompt(), confirm() or alert(): they are unlabelled and unstyled, so
+ *      every question is asked with a real form in a <dialog>.
  */
 
 const API = '/api/community';
 
 const state = {
   me: null,
-  channels: [],
-  waves: [],
-  unreadWaves: 0,
+  categories: [],
+  unreadHellos: 0,
 };
 
 // ---------------------------------------------------------------- utilities
 
-/** Build an element. `text` sets textContent — there is no innerHTML path. */
 function el(tag, props = {}, ...children) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(props)) {
     if (value === null || value === undefined || value === false) continue;
     if (key === 'class') node.className = value;
     else if (key === 'text') node.textContent = value;
-    else if (key === 'dataset') Object.assign(node.dataset, value);
     else if (key.startsWith('on') && typeof value === 'function') {
       node.addEventListener(key.slice(2).toLowerCase(), value);
     } else if (key === 'value') node.value = value;
@@ -50,284 +48,252 @@ async function api(path, options = {}) {
   const res = await fetch(API + path, init);
   const text = await res.text();
   const data = text ? JSON.parse(text) : {};
-  if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
+  if (!res.ok) throw new Error(data.error ?? 'Something went wrong. Please try again.');
   return data;
 }
 
 let toastTimer = null;
-function toast(message, bad = false) {
+function say(message) {
   const node = document.getElementById('toast');
   node.textContent = message;
-  node.classList.toggle('bad', bad);
   node.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { node.hidden = true; }, 3600);
+  toastTimer = setTimeout(() => { node.hidden = true; }, 4000);
 }
 
-const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
+const MIN = 60_000, HR = 60 * MIN, DAY = 24 * HR;
 function ago(ts) {
-  const diff = Date.now() - ts;
-  if (diff < MINUTE) return 'just now';
-  if (diff < HOUR) return `${Math.floor(diff / MINUTE)}m ago`;
-  if (diff < DAY) return `${Math.floor(diff / HOUR)}h ago`;
-  if (diff < 7 * DAY) return `${Math.floor(diff / DAY)}d ago`;
-  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const d = Date.now() - ts;
+  if (d < MIN) return 'just now';
+  if (d < HR) return `${Math.floor(d / MIN)} min ago`;
+  if (d < DAY) return `${Math.floor(d / HR)} hours ago`;
+  if (d < 7 * DAY) return `${Math.floor(d / DAY)} days ago`;
+  return new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
-
 function when(ts) {
   return new Date(ts).toLocaleString(undefined, {
-    weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+    weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit',
+  });
+}
+function money(cents, currency) {
+  if (cents === null || cents === undefined) return '—';
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency || 'USD' }).format(cents / 100);
+}
+
+function go(route) { window.location.hash = route; }
+const isHelp = (kind) => kind === 'help';
+
+// ------------------------------------------------------------------ dialogs
+
+/**
+ * One <dialog> serves every question the app needs to ask. Native dialogs trap
+ * focus and close on Escape for free, which a hand-rolled overlay would not.
+ * Resolves to the typed text, true, or null when the person backs out.
+ */
+function askDialog({ title, label, help, confirmText, danger = false, needsText = false }) {
+  const host = document.getElementById('dialog');
+  host.replaceChildren();
+  return new Promise((resolve) => {
+    const input = needsText ? el('input', { type: 'text', id: 'dialogInput' }) : null;
+    let answered = null;
+
+    const form = el('form', { method: 'dialog' },
+      el('h2', { id: 'dialogTitle', text: title }),
+      help ? el('p', { class: 'hint', text: help }) : null,
+      input ? el('label', { class: 'field' }, el('span', { class: 'lab', text: label }), input) : null,
+      el('div', { class: 'row' },
+        el('button', {
+          class: danger ? '' : 'primary', type: 'submit', text: confirmText,
+          onclick: () => { answered = needsText ? (input.value.trim() || ' ') : true; },
+          style: danger ? 'border-color:var(--danger);color:var(--danger)' : null,
+        }),
+        el('button', { type: 'button', class: 'quiet', text: 'Cancel', onclick: () => { answered = null; host.close(); } }),
+      ),
+    );
+    host.append(form);
+    host.addEventListener('close', () => resolve(answered), { once: true });
+    host.showModal();
+    (input ?? form.querySelector('button')).focus();
   });
 }
 
-function money(cents, currency) {
-  if (cents === null || cents === undefined) return '—';
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency || 'USD' })
-    .format(cents / 100);
-}
+// -------------------------------------------------------------- shared bits
 
-const KIND_LABEL = { help: 'Ask for help', group: 'Groups', social: 'Together' };
-
-function go(route) { window.location.hash = route; }
-
-// ------------------------------------------------------------- shared parts
-
-/** Byline with the author's self-declared, channel-relevant topics beside it. */
-function byline(author, ts, topics = []) {
-  return el('div', { class: 'byline' },
+/** Who wrote it, when, and what they say they know about this category. */
+function who(author, ts, knows = []) {
+  return el('p', { class: 'who' },
     el('a', { href: `#/u/${encodeURIComponent(author.handle)}`, text: author.displayName }),
-    topics.length
-      ? el('span', { class: 'chip topic', title: 'Self-declared on their profile — not verified', text: `says they know ${topics.join(', ')}` })
-      : null,
-    author.helpfulCount > 0
-      ? el('span', { class: 'chip', title: 'Answers marked as the one that helped', text: `${author.helpfulCount} solved` })
-      : null,
+    knows.length ? el('span', { class: 'tag knows', text: `Says they know ${knows.join(', ')}` }) : null,
+    author.helpfulCount > 0 ? el('span', { class: 'tag', text: `${author.helpfulCount} thanks` }) : null,
     el('span', { text: ago(ts) }),
   );
 }
 
-function estimateCard(estimate) {
-  return el('div', { class: 'estimate' },
-    el('div', { class: 'small muted', text: estimate.title }),
-    el('div', { class: 'price', text: money(estimate.estimateCents, estimate.currency) }),
-    el('div', { class: 'small muted', text:
-      `${money(estimate.lowCents, estimate.currency)}–${money(estimate.highCents, estimate.currency)} · ` +
-      `${estimate.sampleSize} comparables · ${Math.round(estimate.confidence * 100)}% confidence` }),
+function priceBox(estimate) {
+  return el('div', { class: 'price-box' },
+    el('p', { class: 'hint', style: 'margin:0', text: estimate.title }),
+    el('p', { class: 'price', style: 'margin:2px 0', text: money(estimate.estimateCents, estimate.currency) }),
+    el('p', { class: 'hint', style: 'margin:0',
+      text: `Rough price, from ${estimate.sampleSize} similar items.` }),
   );
 }
 
-function threadCard(thread) {
-  const chips = el('div', { class: 'row', style: 'gap:6px' },
-    thread.acceptedReplyId ? el('span', { class: 'chip answered', text: '✓ answered' }) : null,
-    thread.meetup ? el('span', { class: 'chip meetup', text: `${when(thread.meetup.startsAt)} · ${thread.meetup.rsvps.length} going` }) : null,
-    thread.estimate ? el('span', { class: 'chip', text: money(thread.estimate.estimateCents, thread.estimate.currency) }) : null,
-    ...thread.tags.map((tag) => el('span', { class: 'chip', text: `#${tag}` })),
+function postCard(post) {
+  const marks = el('p', { class: 'row', style: 'gap:8px; margin:8px 0 0' },
+    post.acceptedReplyId ? el('span', { class: 'tag worked', text: 'Answered' }) : null,
+    post.meetup ? el('span', { class: 'tag when', text: `${when(post.meetup.startsAt)} · ${post.meetup.rsvps.length} coming` }) : null,
+    post.estimate ? el('span', { class: 'tag', text: money(post.estimate.estimateCents, post.estimate.currency) }) : null,
+    ...post.tags.map((t) => el('span', { class: 'tag', text: t })),
   );
-  return el('button', {
-    class: 'thread-item',
-    onclick: () => go(`#/t/${thread.id}`),
-  },
-    el('p', { class: 't', text: thread.title }),
-    el('p', { class: 'excerpt', text: thread.body }),
-    el('div', { class: 'row', style: 'gap:10px' },
-      byline(thread.author, thread.updatedAt, thread.authorTopics),
-      el('span', { class: 'byline', text: `${thread.replyCount} ${thread.replyCount === 1 ? 'reply' : 'replies'}` }),
+  const answers = post.replyCount === 1 ? '1 answer' : `${post.replyCount} answers`;
+  return el('button', { class: 'post', onclick: () => go(`#/p/${post.id}`) },
+    el('span', { class: 't', text: post.title }),
+    el('span', { class: 'ex', text: post.body }),
+    el('span', { class: 'who' },
+      el('span', { text: post.author.displayName }),
+      el('span', { text: ago(post.updatedAt) }),
+      el('span', { text: answers }),
     ),
-    chips.childElementCount ? chips : null,
+    marks.childElementCount ? marks : null,
   );
 }
 
-// ----------------------------------------------------------------- sidebar
+// ------------------------------------------------------------------- header
 
 function renderAccount() {
   const host = document.getElementById('account');
   host.replaceChildren();
-
   if (!state.me) {
-    host.append(el('button', { class: 'primary', style: 'width:100%', onclick: () => go('#/join'), text: 'Sign in or join' }));
+    host.append(el('button', { class: 'primary', text: 'Sign in', onclick: () => go('#/in') }));
     return;
   }
-
-  host.append(
-    el('div', { class: 'row', style: 'justify-content:space-between' },
-      el('a', { href: '#/me', text: state.me.displayName, style: 'font-weight:600' }),
-      el('button', {
-        id: 'waves', class: 'ghost', title: 'Waves from other members',
-        onclick: () => go('#/waves'),
-      }, '👋', state.unreadWaves ? el('span', { class: 'badge', text: String(state.unreadWaves) }) : null),
-    ),
-    el('label', { class: 'check', style: 'margin-top:8px' },
-      el('input', {
-        type: 'checkbox', checked: state.me.openToChat,
-        onchange: async (event) => {
-          try {
-            const { user } = await api('/me', { method: 'PATCH', body: { openToChat: event.target.checked } });
-            state.me = user;
-            toast(user.openToChat ? "You're listed as open to chat." : 'No longer listed as open to chat.');
-          } catch (error) { toast(error.message, true); }
-        },
-      }),
-      'Open to chat right now',
-    ),
-    el('button', {
-      class: 'ghost', style: 'padding-left:0',
-      onclick: async () => {
-        await api('/auth/logout', { method: 'POST' });
-        state.me = null; state.waves = []; state.unreadWaves = 0;
-        renderAccount(); route();
-      },
-      text: 'Sign out',
-    }),
-  );
+  host.append(el('button', {
+    class: 'quiet', text: 'Sign out',
+    onclick: async () => {
+      await api('/auth/logout', { method: 'POST' });
+      state.me = null;
+      state.unreadHellos = 0;
+      renderAccount(); renderNav(); go('#/');
+      say('You are signed out.');
+    },
+  }));
 }
 
-function renderChannelNav() {
-  const host = document.getElementById('channelNav');
-  host.replaceChildren();
-  const current = window.location.hash;
-
-  for (const kind of ['help', 'group', 'social']) {
-    const inKind = state.channels.filter((c) => c.kind === kind);
-    if (!inKind.length) continue;
-    const group = el('div', { class: 'navgroup' }, el('h3', { text: KIND_LABEL[kind] }));
-    for (const channel of inKind) {
-      group.append(el('button', {
-        class: 'navlink',
-        'aria-current': current === `#/c/${channel.slug}` ? 'true' : 'false',
-        onclick: () => go(`#/c/${channel.slug}`),
-        title: channel.description,
-      },
-        el('span', { class: `dot ${channel.kind}` }),
-        el('span', { text: channel.name }),
-        channel.matchesYourSkills ? el('span', { class: 'star', title: 'Matches a skill on your profile', text: '★' }) : null,
-        el('span', { class: 'count', text: String(channel.threadCount) }),
-      ));
-    }
-    host.append(group);
+function renderNav() {
+  const host = document.getElementById('nav');
+  const here = window.location.hash || '#/';
+  const items = [
+    ['#/', 'Home'],
+    ['#/meet', 'Together'],
+    ['#/people', 'People'],
+  ];
+  if (state.me) {
+    items.push(['#/hellos', 'Hellos', state.unreadHellos]);
+    items.push(['#/you', 'You']);
+  } else {
+    items.push(['#/in', 'Join']);
   }
-
-  // Static links live in the HTML; keep their current-state in step too.
-  for (const link of document.querySelectorAll('#sidebar .navlink[data-route]')) {
-    link.setAttribute('aria-current', link.dataset.route === current ? 'true' : 'false');
-    if (!link.dataset.bound) {
-      link.dataset.bound = '1';
-      link.addEventListener('click', () => go(link.dataset.route));
-    }
-  }
+  host.replaceChildren(...items.map(([href, label, badge]) => el('li', {},
+    el('a', { href, 'aria-current': here === href ? 'page' : null },
+      label,
+      badge ? el('span', { class: 'badge', text: String(badge) }) : null),
+  )));
 }
 
-// ------------------------------------------------------------------- views
+// -------------------------------------------------------------------- views
 
 const view = () => document.getElementById('view');
-
 function show(...nodes) {
   view().replaceChildren(...nodes.flat().filter(Boolean));
   window.scrollTo(0, 0);
 }
 
-function header(title, lede, ...extra) {
-  return el('div', {}, el('h1', { text: title }), lede ? el('p', { class: 'lede', text: lede }) : null, ...extra);
-}
-
-function requireSignIn(action) {
+function signInFirst(what) {
   if (state.me) return false;
-  show(header('Sign in first', `You need an account to ${action}.`),
-    el('button', { class: 'primary', onclick: () => go('#/join'), text: 'Sign in or join' }));
+  show(
+    el('h1', { text: 'Please sign in' }),
+    el('p', { class: 'hint', text: `You need an account to ${what}.` }),
+    el('button', { class: 'primary', text: 'Sign in or join', onclick: () => go('#/in') }),
+  );
   return true;
 }
 
-// ---- home ----
-async function viewHome() {
-  const { meetups } = await api('/meetups');
-  const helpChannels = state.channels.filter((c) => c.kind === 'help');
-  const recent = [...state.channels].sort((a, b) => b.lastActiveAt - a.lastActiveAt).slice(0, 4);
-
+/** Home: the six categories, split into the two things people come here for. */
+function viewHome() {
+  const card = (c) => el('button', { class: `cat ${c.kind}`, onclick: () => go(`#/c/${c.slug}`) },
+    el('span', { class: 'nm', text: c.name }),
+    el('span', { class: 'hn', text: c.description }),
+    el('span', { class: 'ct', text: c.threadCount === 1 ? '1 post' : `${c.threadCount} posts` }),
+  );
+  const ask = state.categories.filter((c) => isHelp(c.kind));
+  const meet = state.categories.filter((c) => !isHelp(c.kind));
   show(
-    header('Welcome to Commons',
-      'Three things live here: somewhere to ask people nearby for help with the house, standing groups you can belong to, and low-effort ways to spend time with other people. Pick a channel on the left, or start below.'),
-    el('div', { class: 'card' },
-      el('h2', { text: 'Need a hand with something?' }),
-      el('p', { class: 'small muted', text: 'Describe the problem and what you have already tried. People who have done the same repair will weigh in.' }),
-      el('div', { class: 'row' }, ...helpChannels.map((c) =>
-        el('button', { onclick: () => go(`#/c/${c.slug}`), text: c.name }))),
-    ),
-    el('div', { class: 'card' },
-      el('h2', { text: "What's on" }),
-      meetups.length
-        ? el('div', {}, ...meetups.slice(0, 4).map(threadCard))
-        : el('p', { class: 'small muted', text: 'No meetups posted yet. Anyone can put a time and a place in a social channel.' }),
-    ),
-    el('div', { class: 'card' },
-      el('h2', { text: 'Busiest lately' }),
-      el('div', { class: 'row' }, ...recent.map((c) =>
-        el('button', { onclick: () => go(`#/c/${c.slug}`), text: `${c.name} · ${c.threadCount}` }))),
-    ),
+    el('h1', { text: 'What do you need?' }),
+    el('h2', { text: 'Ask for help', style: 'margin-top:8px' }),
+    el('div', { class: 'cats' }, ...ask.map(card)),
+    el('h2', { text: 'Meet people' }),
+    el('div', { class: 'cats' }, ...meet.map(card)),
   );
 }
 
-// ---- channel ----
-async function viewChannel(slug) {
+async function viewCategory(slug) {
   const { channel, threads } = await api(`/channels/${encodeURIComponent(slug)}`);
+  if (isHelp(channel.kind)) return showQuestions(channel, threads);
+  return showChat(channel, threads);
+}
+
+/** A help category reads as questions with answers. */
+function showQuestions(category, posts) {
   show(
-    header(channel.name, channel.description,
-      el('div', { class: 'row', style: 'margin:-14px 0 20px' },
-        el('span', { class: `chip kind-${channel.kind}`, text: KIND_LABEL[channel.kind] }),
-        ...channel.topics.map((t) => el('span', { class: 'chip', text: t })),
-      )),
-    composer(channel),
-    threads.length
-      ? el('div', {}, ...threads.map(threadCard))
-      : el('p', { class: 'empty', text: 'Nothing here yet. Be the first — an empty channel stays empty until somebody goes first.' }),
+    el('h1', { text: category.name }),
+    el('p', { class: 'hint', text: category.description }),
+    askForm(category),
+    el('h2', { text: posts.length === 1 ? '1 question' : `${posts.length} questions` }),
+    posts.length
+      ? el('div', {}, ...posts.map(postCard))
+      : el('p', { class: 'empty', text: 'No questions yet. Ask the first one.' }),
   );
 }
 
-function composer(channel) {
+function askForm(category) {
   if (!state.me) {
-    return el('div', { class: 'card tight' },
-      el('span', { class: 'muted small', text: 'Sign in to post here. ' }),
-      el('a', { href: '#/join', text: 'Join Commons' }));
+    return el('div', { class: 'card' },
+      el('p', { style: 'margin:0 0 12px', text: 'Sign in to ask a question.' }),
+      el('button', { class: 'primary', text: 'Sign in or join', onclick: () => go('#/in') }));
   }
 
-  const isHelp = channel.kind === 'help';
-  let attached = null;
+  const title = el('input', { type: 'text', id: 'q-title', maxlength: 140 });
+  const body = el('textarea', { id: 'q-body' });
+  const subjects = el('input', { type: 'text', id: 'q-subjects' });
+  const photo = el('input', { type: 'file', id: 'q-photo', accept: 'image/*' });
+  const note = el('p', { style: 'margin:0' });
+  const priced = el('div');
+  let estimate = null;
 
-  const title = el('input', { placeholder: isHelp ? 'What do you need? e.g. "Radiator cold at the top"' : 'Give your post a title', maxlength: 140 });
-  const body = el('textarea', { placeholder: isHelp
-    ? 'What is happening, how long for, and what you have already tried.'
-    : 'Say more.' });
-  const tags = el('input', { placeholder: 'Tags, comma separated (optional)' });
-  const status = el('div', { class: 'small' });
-
-  // Meetup fields — only meaningful where people actually gather.
-  const meetupOn = el('input', { type: 'checkbox' });
-  const startsAt = el('input', { type: 'datetime-local' });
-  const place = el('input', { placeholder: 'Where — a public place works best' });
-  const capacity = el('input', { type: 'number', min: '0', value: '0' });
-  const meetupFields = el('div', { class: 'row', style: 'display:none; gap:10px; align-items:flex-end' },
-    el('label', { class: 'field', style: 'flex:1 1 190px; margin:0' }, el('span', { text: 'When' }), startsAt),
-    el('label', { class: 'field', style: 'flex:2 1 240px; margin:0' }, el('span', { text: 'Where' }), place),
-    el('label', { class: 'field', style: 'flex:0 0 110px; margin:0' }, el('span', { text: 'Max (0 = any)' }), capacity),
+  const extras = el('div', { hidden: true },
+    el('label', { class: 'field' },
+      el('span', { class: 'lab', text: 'Subjects' }),
+      el('span', { class: 'help', text: 'Separate them with commas. This is optional.' }),
+      subjects),
+    el('label', { class: 'field' },
+      el('span', { class: 'lab', text: 'Photo of the item' }),
+      el('span', { class: 'help', text: 'We work out a rough price from the photo. This is optional.' }),
+      photo),
+    priced,
   );
-  meetupOn.addEventListener('change', () => {
-    meetupFields.style.display = meetupOn.checked ? 'flex' : 'none';
-  });
 
-  // Photo -> price estimate, reusing the estimator pipeline so "repair or
-  // replace?" starts from a number instead of a guess.
-  const photo = el('input', { type: 'file', accept: 'image/*' });
-  const estimateBox = el('div');
   photo.addEventListener('change', async () => {
     const file = photo.files?.[0];
     if (!file) return;
-    estimateBox.replaceChildren(el('p', { class: 'small muted', text: 'Reading the photo and finding comparables…' }));
+    priced.replaceChildren(el('p', { class: 'hint', text: 'Working out a rough price…' }));
     const form = new FormData();
     form.append('image', file);
     form.append('hint', title.value);
     try {
       const res = await fetch('/api/estimate', { method: 'POST', body: form });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Estimate failed.');
-      attached = {
+      if (!res.ok) throw new Error(data.error ?? 'We could not read that photo.');
+      estimate = {
         title: data.item.title,
         estimateCents: data.estimate?.estimateCents ?? null,
         lowCents: data.estimate?.lowCents ?? null,
@@ -336,497 +302,597 @@ function composer(channel) {
         confidence: data.estimate?.confidence ?? 0,
         sampleSize: data.estimate?.sampleSize ?? 0,
       };
-      estimateBox.replaceChildren(estimateCard(attached));
-      if (!title.value) title.value = `Worth fixing? ${data.item.title}`;
+      priced.replaceChildren(priceBox(estimate));
+      if (!title.value) title.value = `Is it worth fixing? ${data.item.title}`;
     } catch (error) {
-      attached = null;
-      estimateBox.replaceChildren(el('p', { class: 'err', text: `Could not estimate: ${error.message}` }));
+      estimate = null;
+      priced.replaceChildren(el('p', { class: 'err', text: error.message }));
     }
   });
 
-  const post = el('button', { class: 'primary', text: isHelp ? 'Ask' : 'Post' });
-  post.addEventListener('click', async () => {
+  const send = el('button', { class: 'primary', text: 'Ask' });
+  send.addEventListener('click', async () => {
     if (!title.value.trim() || !body.value.trim()) {
-      status.replaceChildren(el('span', { class: 'err', text: 'A title and a body, please.' }));
+      note.replaceChildren(el('span', { class: 'err', text: 'Please fill in both boxes.' }));
       return;
     }
-    const payload = {
-      title: title.value.trim(),
-      body: body.value.trim(),
-      tags: tags.value.split(',').map((t) => t.trim()).filter(Boolean),
-    };
-    if (attached) payload.estimate = attached;
-    if (meetupOn.checked) {
-      if (!startsAt.value || !place.value.trim()) {
-        status.replaceChildren(el('span', { class: 'err', text: 'A meetup needs a time and a place.' }));
-        return;
-      }
-      payload.meetup = {
-        startsAt: new Date(startsAt.value).getTime(),
-        place: place.value.trim(),
-        capacity: Number(capacity.value) || 0,
-      };
-    }
-    post.disabled = true;
+    send.disabled = true;
     try {
-      const { thread } = await api(`/channels/${encodeURIComponent(channel.slug)}/threads`, { method: 'POST', body: payload });
-      go(`#/t/${thread.id}`);
+      const payload = {
+        title: title.value.trim(),
+        body: body.value.trim(),
+        tags: subjects.value.split(',').map((t) => t.trim()).filter(Boolean),
+      };
+      if (estimate) payload.estimate = estimate;
+      const { thread } = await api(`/channels/${encodeURIComponent(category.slug)}/threads`, { method: 'POST', body: payload });
+      go(`#/p/${thread.id}`);
     } catch (error) {
-      status.replaceChildren(el('span', { class: 'err', text: error.message }));
+      note.replaceChildren(el('span', { class: 'err', text: error.message }));
     } finally {
-      post.disabled = false;
+      send.disabled = false;
     }
   });
 
-  const details = el('details', { class: 'card' },
-    el('summary', { text: isHelp ? 'Ask this channel for help' : 'Start a post' }),
-    el('div', { style: 'margin-top:14px' },
-      el('label', { class: 'field' }, el('span', { text: 'Title' }), title),
-      el('label', { class: 'field' }, el('span', { text: 'Details' }), body),
-      el('label', { class: 'field' }, el('span', { text: 'Tags' }), tags),
-      channel.kind !== 'help'
-        ? el('label', { class: 'check', style: 'margin-bottom:10px' }, meetupOn, 'This is a meetup — add a time and place')
-        : null,
-      channel.kind !== 'help' ? meetupFields : null,
-      isHelp
-        ? el('label', { class: 'field', style: 'margin-top:10px' },
-            el('span', { text: 'Optional: attach a price estimate from a photo of the item' }), photo)
-        : null,
-      estimateBox,
-      el('div', { class: 'row', style: 'margin-top:12px' }, post, status),
-    ),
+  const more = el('button', { class: 'quiet', text: 'Add a photo or subjects' });
+  more.addEventListener('click', () => {
+    extras.hidden = !extras.hidden;
+    more.textContent = extras.hidden ? 'Add a photo or subjects' : 'Hide extras';
+  });
+
+  return el('div', { class: 'card' },
+    el('h2', { style: 'margin:0 0 14px', text: 'Ask a question' }),
+    el('label', { class: 'field' },
+      el('span', { class: 'lab', text: 'Your question' }),
+      title),
+    el('label', { class: 'field' },
+      el('span', { class: 'lab', text: 'More detail' }),
+      el('span', { class: 'help', text: 'What happens, and what you have already tried.' }),
+      body),
+    el('div', { class: 'row' }, send, more),
+    note,
+    extras,
   );
-  return details;
 }
 
-// ---- thread ----
-async function viewThread(id) {
-  const { thread, replies, rsvps } = await api(`/threads/${encodeURIComponent(id)}`);
-  const parts = [];
+/** A club or social category reads as a chat: oldest first, box at the bottom. */
+function showChat(category, posts) {
+  const stream = [...posts].sort((a, b) => a.createdAt - b.createdAt);
+  show(
+    el('h1', { text: category.name }),
+    el('p', { class: 'hint', text: category.description }),
+    el('div', { class: 'row', style: 'margin-bottom:14px' },
+      el('button', { text: 'Plan a get-together', onclick: () => go(`#/plan/${category.slug}`) })),
+    stream.length
+      ? el('div', { class: 'chat' }, ...stream.map(messageCard))
+      : el('p', { class: 'empty', text: 'Nothing here yet. Say the first hello.' }),
+    writer(category),
+  );
+}
 
-  parts.push(el('div', { class: 'byline', style: 'margin-bottom:8px' },
-    el('a', { href: `#/c/${thread.channelSlug}`, text: `← ${thread.channelName}` })));
-  parts.push(el('h1', { text: thread.title }));
-  parts.push(byline(thread.author, thread.createdAt, thread.authorTopics));
-  parts.push(el('p', { class: 'body', text: thread.body }));
-  if (thread.tags.length) {
-    parts.push(el('div', { class: 'row', style: 'margin-top:10px; gap:6px' },
-      ...thread.tags.map((t) => el('span', { class: 'chip', text: `#${t}` }))));
+function messageCard(post) {
+  const answers = post.replyCount === 1 ? '1 answer' : `${post.replyCount} answers`;
+  const box = el('div', { hidden: true });
+
+  const reply = el('button', { class: 'quiet', text: 'Answer' });
+  reply.addEventListener('click', () => {
+    if (!state.me) return go('#/in');
+    if (!box.hidden) { box.hidden = true; reply.textContent = 'Answer'; return; }
+    const field = el('textarea', { id: `a-${post.id}`, style: 'min-height:80px' });
+    const send = el('button', { class: 'primary', text: 'Send' });
+    send.addEventListener('click', async () => {
+      if (!field.value.trim()) return;
+      send.disabled = true;
+      try {
+        await api(`/threads/${post.id}/replies`, { method: 'POST', body: { body: field.value.trim() } });
+        route();
+      } catch (error) { say(error.message); send.disabled = false; }
+    });
+    box.replaceChildren(
+      el('label', { class: 'field', style: 'margin:12px 0 8px' },
+        el('span', { class: 'lab', text: 'Your answer' }), field),
+      send,
+    );
+    box.hidden = false;
+    reply.textContent = 'Close';
+    field.focus();
+  });
+
+  return el('div', { class: 'msg' },
+    who(post.author, post.createdAt, post.authorTopics),
+    post.meetup ? el('p', { class: 'row', style: 'margin:8px 0 0' },
+      el('span', { class: 'tag when', text: `${when(post.meetup.startsAt)} · ${post.meetup.rsvps.length} coming` })) : null,
+    el('p', { class: 'body', text: post.body }),
+    el('div', { class: 'acts' },
+      reply,
+      post.replyCount > 0
+        ? el('button', { class: 'quiet', text: `Read ${answers}`, onclick: () => go(`#/p/${post.id}`) })
+        : null,
+    ),
+    box,
+  );
+}
+
+function writer(category) {
+  if (!state.me) {
+    return el('div', { class: 'card' },
+      el('p', { style: 'margin:0 0 12px', text: 'Sign in to join in.' }),
+      el('button', { class: 'primary', text: 'Sign in or join', onclick: () => go('#/in') }));
   }
-  if (thread.estimate) parts.push(estimateCard(thread.estimate));
-  if (thread.meetup) parts.push(meetupPanel(thread, rsvps));
+  const field = el('textarea', { id: 'msg', style: 'min-height:90px' });
+  const send = el('button', { class: 'primary', text: 'Send' });
+  send.addEventListener('click', async () => {
+    const text = field.value.trim();
+    if (!text) return;
+    send.disabled = true;
+    try {
+      // A chat line has no headline, so the first few words become the title
+      // the server needs. People never see or type it.
+      const title = text.split(/\s+/).slice(0, 8).join(' ').slice(0, 140);
+      await api(`/channels/${encodeURIComponent(category.slug)}/threads`, {
+        method: 'POST', body: { title, body: text },
+      });
+      field.value = '';
+      route();
+    } catch (error) {
+      say(error.message);
+    } finally {
+      send.disabled = false;
+    }
+  });
+  return el('div', { class: 'writer' },
+    el('label', { class: 'field', style: 'margin-bottom:10px' },
+      el('span', { class: 'lab', text: 'Write a message' }), field),
+    send);
+}
 
-  parts.push(el('div', { class: 'row', style: 'margin-top:14px' },
+/** Plan a get-together — its own page, so the chat box stays a chat box. */
+function viewPlan(slug) {
+  if (signInFirst('plan a get-together')) return;
+  const category = state.categories.find((c) => c.slug === slug);
+  const title = el('input', { type: 'text', id: 'g-title', maxlength: 140 });
+  const body = el('textarea', { id: 'g-body' });
+  const startsAt = el('input', { type: 'datetime-local', id: 'g-when' });
+  const place = el('input', { type: 'text', id: 'g-where', maxlength: 120 });
+  const capacity = el('input', { type: 'number', id: 'g-many', min: '0', value: '0' });
+  const note = el('p', { style: 'margin:0' });
+
+  const send = el('button', { class: 'primary', text: 'Post it' });
+  send.addEventListener('click', async () => {
+    if (!title.value.trim() || !body.value.trim() || !startsAt.value || !place.value.trim()) {
+      note.replaceChildren(el('span', { class: 'err', text: 'Please fill in every box.' }));
+      return;
+    }
+    send.disabled = true;
+    try {
+      const { thread } = await api(`/channels/${encodeURIComponent(slug)}/threads`, {
+        method: 'POST',
+        body: {
+          title: title.value.trim(),
+          body: body.value.trim(),
+          meetup: {
+            startsAt: new Date(startsAt.value).getTime(),
+            place: place.value.trim(),
+            capacity: Number(capacity.value) || 0,
+          },
+        },
+      });
+      go(`#/p/${thread.id}`);
+    } catch (error) {
+      note.replaceChildren(el('span', { class: 'err', text: error.message }));
+    } finally {
+      send.disabled = false;
+    }
+  });
+
+  show(
+    el('h1', { text: 'Plan a get-together' }),
+    el('p', { class: 'hint', text: category ? `It will show in ${category.name}.` : '' }),
+    el('div', { class: 'card' },
+      el('label', { class: 'field' }, el('span', { class: 'lab', text: 'What is it' }), title),
+      el('label', { class: 'field' }, el('span', { class: 'lab', text: 'More detail' }), body),
+      el('label', { class: 'field' }, el('span', { class: 'lab', text: 'When' }), startsAt),
+      el('label', { class: 'field' },
+        el('span', { class: 'lab', text: 'Where' }),
+        el('span', { class: 'help', text: 'A public place is usually best.' }), place),
+      el('label', { class: 'field' },
+        el('span', { class: 'lab', text: 'How many people can come' }),
+        el('span', { class: 'help', text: 'Put 0 for no limit.' }), capacity),
+      el('div', { class: 'row' }, send, el('button', { class: 'quiet', text: 'Cancel', onclick: () => go(`#/c/${slug}`) })),
+      note,
+    ),
+  );
+}
+
+// -------------------------------------------------------------------- posts
+
+async function viewPost(id) {
+  const { thread, replies, rsvps } = await api(`/threads/${encodeURIComponent(id)}`);
+  const help = isHelp(thread.channelKind);
+  const parts = [
+    el('p', { class: 'who' }, el('a', { href: `#/c/${thread.channelSlug}`, text: `Back to ${thread.channelName}` })),
+    el('h1', { text: thread.title }),
+    who(thread.author, thread.createdAt, thread.authorTopics),
+    el('p', { class: 'body', text: thread.body }),
+  ];
+  if (thread.tags.length) {
+    parts.push(el('p', { class: 'row', style: 'gap:8px' }, ...thread.tags.map((t) => el('span', { class: 'tag', text: t }))));
+  }
+  if (thread.estimate) parts.push(priceBox(thread.estimate));
+  if (thread.meetup) parts.push(meetupBox(thread, rsvps));
+
+  parts.push(el('div', { class: 'row', style: 'margin-top:16px' },
     thread.viewerIsAuthor
       ? el('button', {
-          class: 'ghost', text: 'Delete',
+          class: 'quiet', text: 'Delete this',
           onclick: async () => {
-            if (!confirm('Delete this thread?')) return;
+            const yes = await askDialog({ title: 'Delete this?', help: 'It cannot be brought back.', confirmText: 'Delete', danger: true });
+            if (!yes) return;
             await api(`/threads/${thread.id}`, { method: 'DELETE' });
-            toast('Deleted.');
+            say('Deleted.');
             go(`#/c/${thread.channelSlug}`);
           },
         })
       : reportButton('thread', thread.id),
   ));
 
-  parts.push(el('hr', { class: 'sep' }));
-  parts.push(el('h2', { text: `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}` }));
-
+  const heading = replies.length === 1 ? '1 answer' : `${replies.length} answers`;
+  parts.push(el('h2', { text: heading }));
   if (!replies.length) {
-    parts.push(el('p', { class: 'empty', text: emptyRepliesCopy(thread) }));
+    parts.push(el('p', { class: 'empty', text: help ? 'No answers yet. Yours would help.' : 'Nothing back yet.' }));
   }
-  for (const reply of replies) parts.push(replyNode(thread, reply));
-
-  parts.push(replyComposer(thread));
+  for (const reply of replies) parts.push(answerNode(thread, reply));
+  parts.push(answerForm(thread));
   show(parts);
 }
 
-/** A question with no answers and a supper with no takers need different nudges. */
-function emptyRepliesCopy(thread) {
-  if (thread.channelKind === 'help') {
-    return 'No replies yet. If you know something about this, say so — a half-answer beats silence.';
-  }
-  if (thread.meetup) {
-    return 'Nobody has said anything yet. Ask about the details, or just say you are coming.';
-  }
-  return 'No replies yet. Saying something small is enough.';
-}
-
-function replyNode(thread, reply) {
-  // Built through el(), which drops nulls — Element.append(null) would render
-  // the string "null" into the page.
-  const node = el('div', { class: `reply${reply.accepted ? ' accepted' : ''}` },
-    reply.accepted ? el('span', { class: 'chip answered', text: '✓ this is what worked' }) : null,
-    byline(reply.author, reply.createdAt, reply.authorTopics),
+function answerNode(thread, reply) {
+  const node = el('div', { class: `answer${reply.accepted ? ' worked' : ''}` },
+    reply.accepted ? el('p', { style: 'margin:0 0 6px' }, el('span', { class: 'tag worked', text: 'This is the answer that worked' })) : null,
+    who(reply.author, reply.createdAt, reply.authorTopics),
     el('p', { class: 'body', text: reply.body }),
   );
 
-  const actions = el('div', { class: 'actions' });
+  const acts = el('div', { class: 'row', style: 'margin-top:10px' });
   if (state.me && !reply.viewerIsAuthor) {
-    actions.append(el('button', {
-      class: `ghost${reply.viewerFoundHelpful ? ' on' : ''}`,
-      text: `👍 ${reply.helpfulCount}`,
-      title: 'This was useful',
+    acts.append(el('button', {
+      class: `quiet${reply.viewerFoundHelpful ? ' on' : ''}`,
+      text: `Say thanks (${reply.helpfulCount})`,
       onclick: async (event) => {
         try {
           const res = await api(`/replies/${reply.id}/helpful`, { method: 'POST' });
-          event.currentTarget.textContent = `👍 ${res.helpfulCount}`;
+          event.currentTarget.textContent = `Say thanks (${res.helpfulCount})`;
           event.currentTarget.classList.toggle('on', res.viewerFoundHelpful);
-        } catch (error) { toast(error.message, true); }
+        } catch (error) { say(error.message); }
       },
     }));
   } else {
-    actions.append(el('span', { class: 'byline', text: `👍 ${reply.helpfulCount}` }));
+    acts.append(el('span', { class: 'who', text: `${reply.helpfulCount} thanks` }));
   }
 
   if (thread.viewerIsAuthor) {
-    actions.append(el('button', {
-      class: `ghost${reply.accepted ? ' on' : ''}`,
-      text: reply.accepted ? 'Unmark' : 'This solved it',
+    acts.append(el('button', {
+      class: `quiet${reply.accepted ? ' on' : ''}`,
+      text: reply.accepted ? 'Undo' : 'This one worked',
       onclick: async () => {
         try {
           await api(`/threads/${thread.id}/accept`, { method: 'POST', body: { replyId: reply.accepted ? null : reply.id } });
           route();
-        } catch (error) { toast(error.message, true); }
+        } catch (error) { say(error.message); }
       },
     }));
   }
   if (reply.viewerIsAuthor) {
-    actions.append(el('button', {
-      class: 'ghost', text: 'Delete',
+    acts.append(el('button', {
+      class: 'quiet', text: 'Delete',
       onclick: async () => {
-        if (!confirm('Delete this reply?')) return;
+        const yes = await askDialog({ title: 'Delete your answer?', confirmText: 'Delete', danger: true });
+        if (!yes) return;
         await api(`/replies/${reply.id}`, { method: 'DELETE' });
         route();
       },
     }));
   } else if (state.me) {
-    actions.append(reportButton('reply', reply.id));
+    acts.append(reportButton('reply', reply.id));
   }
-  node.append(actions);
+  node.append(acts);
   return node;
 }
 
 function reportButton(kind, id) {
   return el('button', {
-    class: 'ghost', text: 'Report',
+    class: 'quiet', text: 'Report a problem',
     onclick: async () => {
-      const reason = prompt('What is wrong with this post?');
+      const reason = await askDialog({
+        title: 'Report a problem',
+        label: 'What is wrong with it',
+        help: 'Three reports hide something while we check it.',
+        confirmText: 'Send report',
+        needsText: true,
+      });
       if (reason === null) return;
       try {
-        const res = await api('/report', { method: 'POST', body: { kind, id, reason } });
-        toast(res.hidden ? 'Reported — it is now hidden pending review.' : 'Reported. Thank you.');
-      } catch (error) { toast(error.message, true); }
+        const res = await api('/report', { method: 'POST', body: { kind, id, reason: reason.trim() } });
+        say(res.hidden ? 'Reported. It is hidden while we check it.' : 'Reported. Thank you.');
+      } catch (error) { say(error.message); }
     },
   });
 }
 
-function replyComposer(thread) {
+function answerForm(thread) {
   if (!state.me) {
-    return el('div', { class: 'card tight' },
-      el('span', { class: 'muted small', text: 'Sign in to reply. ' }),
-      el('a', { href: '#/join', text: 'Join Commons' }));
+    return el('div', { class: 'card' },
+      el('p', { style: 'margin:0 0 12px', text: 'Sign in to answer.' }),
+      el('button', { class: 'primary', text: 'Sign in or join', onclick: () => go('#/in') }));
   }
-  const body = el('textarea', {
-    placeholder: thread.channelKind === 'help'
-      ? 'Answer from what you have actually done. Say what you are unsure about.'
-      : 'Say something back.',
-  });
-  const send = el('button', { class: 'primary', text: 'Reply' });
+  const field = el('textarea', { id: 'answer' });
+  const send = el('button', { class: 'primary', text: 'Send' });
   send.addEventListener('click', async () => {
-    if (!body.value.trim()) return;
+    if (!field.value.trim()) return;
     send.disabled = true;
     try {
-      await api(`/threads/${thread.id}/replies`, { method: 'POST', body: { body: body.value.trim() } });
-      body.value = '';
+      await api(`/threads/${thread.id}/replies`, { method: 'POST', body: { body: field.value.trim() } });
+      field.value = '';
       route();
-    } catch (error) {
-      toast(error.message, true);
-    } finally {
-      send.disabled = false;
-    }
+    } catch (error) { say(error.message); send.disabled = false; }
   });
-  return el('div', { class: 'card', style: 'margin-top:18px' }, body, el('div', { style: 'margin-top:10px' }, send));
+  return el('div', { class: 'card', style: 'margin-top:18px' },
+    el('label', { class: 'field' },
+      el('span', { class: 'lab', text: 'Your answer' }),
+      isHelp(thread.channelKind) ? el('span', { class: 'help', text: 'Say what you have done yourself.' }) : null,
+      field),
+    send);
 }
 
-function meetupPanel(thread, rsvps) {
+function meetupBox(thread, rsvps) {
   const meetup = thread.meetup;
   const full = meetup.capacity > 0 && meetup.rsvps.length >= meetup.capacity && !thread.viewerRsvpd;
   return el('div', { class: 'card', style: 'margin-top:14px' },
-    el('div', { class: 'spread' },
-      el('div', {},
-        el('div', { style: 'font-weight:600', text: when(meetup.startsAt) }),
-        el('div', { class: 'small muted', text: meetup.place }),
-        el('div', { class: 'small muted', text:
-          `${meetup.rsvps.length} going${meetup.capacity ? ` · room for ${meetup.capacity}` : ''}` }),
-      ),
-      state.me
-        ? el('button', {
-            class: thread.viewerRsvpd ? '' : 'primary',
-            text: thread.viewerRsvpd ? "Can't make it" : full ? 'Join the waitlist' : "I'll be there",
-            onclick: async () => {
-              try {
-                const res = await api(`/threads/${thread.id}/rsvp`, { method: 'POST' });
-                toast(res.viewerRsvpd ? (res.waitlisted ? 'You are on the waitlist.' : 'See you there.') : 'Taken off the list.');
-                route();
-              } catch (error) { toast(error.message, true); }
-            },
-          })
-        : el('a', { href: '#/join', text: 'Sign in to RSVP' }),
-    ),
+    el('p', { style: 'font-weight:700; margin:0', text: when(meetup.startsAt) }),
+    el('p', { style: 'margin:2px 0', text: meetup.place }),
+    el('p', { class: 'hint', style: 'margin:0 0 12px',
+      text: `${meetup.rsvps.length} coming${meetup.capacity ? `, room for ${meetup.capacity}` : ''}` }),
+    state.me
+      ? el('button', {
+          class: thread.viewerRsvpd ? '' : 'primary',
+          text: thread.viewerRsvpd ? 'I cannot come' : full ? 'Join the waiting list' : "I'm coming",
+          onclick: async () => {
+            try {
+              const res = await api(`/threads/${thread.id}/rsvp`, { method: 'POST' });
+              say(res.viewerRsvpd ? (res.waitlisted ? 'You are on the waiting list.' : 'See you there.') : 'Taken off the list.');
+              route();
+            } catch (error) { say(error.message); }
+          },
+        })
+      : el('button', { class: 'primary', text: 'Sign in to come', onclick: () => go('#/in') }),
     rsvps.length
-      ? el('div', { class: 'row', style: 'margin-top:12px; gap:6px' },
+      ? el('p', { class: 'row', style: 'gap:8px; margin:14px 0 0' },
           ...rsvps.map((p, i) => el('span', {
-            class: meetup.capacity > 0 && i >= meetup.capacity ? 'chip' : 'chip topic',
-            title: meetup.capacity > 0 && i >= meetup.capacity ? 'Waitlist' : 'Going',
-            text: p.displayName,
+            class: 'tag',
+            text: meetup.capacity > 0 && i >= meetup.capacity ? `${p.displayName} (waiting)` : p.displayName,
           })))
       : null,
   );
 }
 
-// ---- meetups ----
+// ------------------------------------------------------------- other pages
+
 async function viewMeetups() {
   const { meetups } = await api('/meetups');
   show(
-    header("What's on", 'Every upcoming meetup, soonest first. Turning up alone is normal here.'),
+    el('h1', { text: 'Get-togethers' }),
+    el('p', { class: 'hint', text: 'Coming up soon. Going on your own is normal here.' }),
     meetups.length
-      ? el('div', {}, ...meetups.map(threadCard))
-      : el('p', { class: 'empty', text: 'Nothing scheduled. Post a time and a place in Walks & Coffee — one person is enough to start.' }),
+      ? el('div', {}, ...meetups.map(postCard))
+      : el('p', { class: 'empty', text: 'Nothing planned yet. You could be the first.' }),
   );
 }
 
-// ---- people ----
 async function viewPeople() {
   const { people } = await api('/people');
-  const open = people.filter((p) => p.openToChat);
+  const free = people.filter((p) => p.openToChat);
   const rest = people.filter((p) => !p.openToChat);
-
   show(
-    header('Members', 'Who is here, what they say they know, and who is around to talk right now.'),
-    open.length
-      ? el('div', {},
-          el('h2', { text: 'Open to chat right now' }),
-          el('div', { class: 'grid' }, ...open.map(personCard)),
-          el('hr', { class: 'sep' }))
-      : el('p', { class: 'small muted', text: 'Nobody has flagged themselves as free to chat right now. You can be the first — the toggle is in the sidebar.' }),
+    el('h1', { text: 'People' }),
+    free.length
+      ? el('div', {}, el('h2', { style: 'margin-top:8px', text: 'Free to talk now' }), el('div', { class: 'people' }, ...free.map(personCard)))
+      : el('p', { class: 'hint', text: 'Nobody is free to talk right now.' }),
     el('h2', { text: 'Everyone' }),
-    rest.length ? el('div', { class: 'grid' }, ...rest.map(personCard)) : el('p', { class: 'small muted', text: '—' }),
+    rest.length ? el('div', { class: 'people' }, ...rest.map(personCard)) : el('p', { class: 'hint', text: 'Nobody else yet.' }),
   );
 }
 
 function personCard(person) {
   return el('div', { class: 'person' },
     el('h3', {}, el('a', { href: `#/u/${encodeURIComponent(person.handle)}`, text: person.displayName })),
-    el('div', { class: 'handle', text: `@${person.handle}${person.neighborhood ? ` · ${person.neighborhood}` : ''}` }),
-    person.openToChat ? el('div', { class: 'presence', style: 'margin-top:6px' }, el('i'), 'open to chat') : null,
-    person.bio ? el('p', { class: 'small muted', style: 'margin:8px 0 0', text: person.bio }) : null,
+    el('p', { class: 'who', style: 'margin:0 0 8px' },
+      el('span', { text: person.neighborhood || 'No area given' })),
+    person.openToChat ? el('p', { class: 'free', style: 'margin:0 0 8px', text: 'Free to talk now' }) : null,
+    person.bio ? el('p', { class: 'hint', style: 'margin:0 0 8px', text: person.bio }) : null,
     person.skills.length
-      ? el('div', { class: 'row', style: 'margin-top:8px; gap:5px' }, ...person.skills.slice(0, 5).map((s) => el('span', { class: 'chip topic', text: s })))
+      ? el('p', { class: 'row', style: 'gap:8px; margin:0 0 8px' }, ...person.skills.slice(0, 4).map((s) => el('span', { class: 'tag knows', text: s })))
       : null,
-    state.me && state.me.id !== person.id ? waveButton(person) : null,
+    state.me && state.me.id !== person.id ? helloButton(person) : null,
   );
 }
 
-function waveButton(person) {
+function helloButton(person) {
   return el('button', {
-    class: 'ghost', style: 'margin-top:10px; padding-left:0',
-    text: '👋 Say hello',
+    text: 'Say hello',
     onclick: async () => {
-      const note = prompt(`Send ${person.displayName} a wave. Add a line if you like:`);
+      const note = await askDialog({
+        title: `Say hello to ${person.displayName}`,
+        label: 'Add a line if you like',
+        help: 'You can send one hello a day to each person.',
+        confirmText: 'Send hello',
+        needsText: true,
+      });
       if (note === null) return;
       try {
-        await api('/waves', { method: 'POST', body: { toUserId: person.id, note } });
-        toast('Waved.');
-      } catch (error) { toast(error.message, true); }
+        await api('/waves', { method: 'POST', body: { toUserId: person.id, note: note.trim() } });
+        say('Hello sent.');
+      } catch (error) { say(error.message); }
     },
   });
 }
 
-async function viewProfile(handle) {
+async function viewPerson(handle) {
   const { user, threads } = await api(`/people/${encodeURIComponent(handle)}`);
   show(
-    header(user.displayName, user.bio || null),
-    el('div', { class: 'card tight' },
-      el('div', { class: 'handle small muted', text: `@${user.handle}${user.neighborhood ? ` · ${user.neighborhood}` : ''} · here since ${new Date(user.createdAt).toLocaleDateString()}` }),
+    el('h1', { text: user.displayName }),
+    el('div', { class: 'card' },
+      el('p', { class: 'hint', style: 'margin:0 0 8px', text: user.neighborhood || 'No area given' }),
+      user.bio ? el('p', { style: 'margin:0 0 10px', text: user.bio }) : null,
       user.skills.length
-        ? el('div', { class: 'row', style: 'margin-top:10px; gap:6px' }, ...user.skills.map((s) => el('span', { class: 'chip topic', text: s })))
+        ? el('p', { class: 'row', style: 'gap:8px; margin:0 0 10px' },
+            el('span', { class: 'hint', text: 'Can help with:' }),
+            ...user.skills.map((s) => el('span', { class: 'tag knows', text: s })))
         : null,
-      user.helpfulCount
-        ? el('p', { class: 'small muted', style: 'margin:10px 0 0', text: `${user.helpfulCount} answers marked as the one that helped.` })
-        : null,
-      state.me && state.me.id !== user.id ? waveButton(user) : null,
+      user.helpfulCount ? el('p', { class: 'hint', style: 'margin:0 0 10px', text: `${user.helpfulCount} answers that worked.` }) : null,
+      state.me && state.me.id !== user.id ? helloButton(user) : null,
     ),
-    el('h2', { text: 'Posts' }),
-    threads.length ? el('div', {}, ...threads.map(threadCard)) : el('p', { class: 'small muted', text: 'Nothing posted yet.' }),
+    el('h2', { text: 'Their posts' }),
+    threads.length ? el('div', {}, ...threads.map(postCard)) : el('p', { class: 'hint', text: 'Nothing yet.' }),
   );
 }
 
-// ---- me ----
-function viewMe() {
-  if (requireSignIn('edit your profile')) return;
+function viewYou() {
+  if (signInFirst('see your page')) return;
   const me = state.me;
-  const displayName = el('input', { value: me.displayName, maxlength: 60 });
-  const bio = el('textarea', { value: me.bio, maxlength: 500, placeholder: 'A couple of lines. What you are around for.' });
-  const neighborhood = el('input', { value: me.neighborhood, maxlength: 80, placeholder: 'Rough area only — never your address' });
-  const skills = el('input', { value: me.skills.join(', '), placeholder: 'plumbing, sewing, wifi' });
-  const status = el('div', { class: 'small' });
+  const name = el('input', { type: 'text', id: 'p-name', value: me.displayName, maxlength: 60 });
+  const area = el('input', { type: 'text', id: 'p-area', value: me.neighborhood, maxlength: 80 });
+  const about = el('textarea', { id: 'p-about', maxlength: 500 }); about.value = me.bio;
+  const canHelp = el('input', { type: 'text', id: 'p-help', value: me.skills.join(', ') });
+  const note = el('p', { style: 'margin:0' });
+
+  const free = el('input', { type: 'checkbox', checked: me.openToChat });
+  free.addEventListener('change', async () => {
+    try {
+      const { user } = await api('/me', { method: 'PATCH', body: { openToChat: free.checked } });
+      state.me = user;
+      say(user.openToChat ? 'People can see you are free to talk.' : 'You are no longer shown as free to talk.');
+    } catch (error) { say(error.message); free.checked = !free.checked; }
+  });
 
   const save = el('button', { class: 'primary', text: 'Save' });
   save.addEventListener('click', async () => {
     save.disabled = true;
     try {
-      const { user } = await api('/me', { method: 'PATCH', body: {
-        displayName: displayName.value.trim(),
-        bio: bio.value.trim(),
-        neighborhood: neighborhood.value.trim(),
-        skills: skills.value.split(',').map((s) => s.trim()).filter(Boolean),
-      } });
+      const { user } = await api('/me', {
+        method: 'PATCH',
+        body: {
+          displayName: name.value.trim(),
+          neighborhood: area.value.trim(),
+          bio: about.value.trim(),
+          skills: canHelp.value.split(',').map((s) => s.trim()).filter(Boolean),
+        },
+      });
       state.me = user;
-      renderAccount();
-      await loadChannels();
-      status.replaceChildren(el('span', { class: 'ok', text: 'Saved.' }));
+      await loadCategories();
+      note.replaceChildren(el('span', { class: 'ok', text: 'Saved.' }));
     } catch (error) {
-      status.replaceChildren(el('span', { class: 'err', text: error.message }));
-    } finally {
-      save.disabled = false;
-    }
+      note.replaceChildren(el('span', { class: 'err', text: error.message }));
+    } finally { save.disabled = false; }
   });
 
   show(
-    header('Your profile',
-      'Skills you list here are shown next to your replies in matching channels. They are self-declared and shown as such — Commons verifies nothing.'),
+    el('h1', { text: 'Your page' }),
     el('div', { class: 'card' },
-      el('label', { class: 'field' }, el('span', { text: 'Display name' }), displayName),
-      el('label', { class: 'field' }, el('span', { text: 'About you' }), bio),
-      el('label', { class: 'field' }, el('span', { text: 'Neighbourhood' }), neighborhood),
-      el('label', { class: 'field' }, el('span', { text: 'Skills, comma separated' }), skills),
-      el('div', { class: 'row' }, save, status),
+      el('label', { class: 'toggle' }, free, "I'm free to talk right now"),
+    ),
+    el('div', { class: 'card' },
+      el('label', { class: 'field' }, el('span', { class: 'lab', text: 'Your name' }), name),
+      el('label', { class: 'field' },
+        el('span', { class: 'lab', text: 'Your area' }),
+        el('span', { class: 'help', text: 'Just the area. Never your address.' }), area),
+      el('label', { class: 'field' }, el('span', { class: 'lab', text: 'A bit about you' }), about),
+      el('label', { class: 'field' },
+        el('span', { class: 'lab', text: 'What you can help with' }),
+        el('span', { class: 'help', text: 'Separate them with commas. Shown next to your answers. Nobody checks these.' }),
+        canHelp),
+      el('div', { class: 'row' }, save), note,
     ),
   );
 }
 
-async function viewWaves() {
-  if (requireSignIn('see your waves')) return;
+async function viewHellos() {
+  if (signInFirst('see your hellos')) return;
   const { waves } = await api('/waves');
   await api('/waves/read', { method: 'POST' });
-  state.unreadWaves = 0;
-  renderAccount();
-
+  state.unreadHellos = 0;
+  renderNav();
   show(
-    header('Waves', 'Someone here wanted you to know they saw you. Answering in a channel is the easiest reply.'),
+    el('h1', { text: 'Hellos' }),
     waves.length
-      ? el('div', {}, ...waves.map((wave) => el('div', { class: 'card tight' },
-          el('div', { class: 'byline' },
-            wave.from ? el('a', { href: `#/u/${encodeURIComponent(wave.from.handle)}`, text: wave.from.displayName }) : 'Former member',
+      ? el('div', { class: 'stack' }, ...waves.map((wave) => el('div', { class: 'card', style: 'margin:0' },
+          el('p', { class: 'who' },
+            wave.from ? el('a', { href: `#/u/${encodeURIComponent(wave.from.handle)}`, text: wave.from.displayName }) : el('span', { text: 'Someone who has left' }),
             el('span', { text: ago(wave.createdAt) })),
-          wave.note ? el('p', { class: 'body', text: wave.note }) : null,
-        )))
-      : el('p', { class: 'empty', text: 'No waves yet.' }),
+          wave.note ? el('p', { class: 'body', text: wave.note }) : null)))
+      : el('p', { class: 'empty', text: 'No hellos yet.' }),
   );
 }
 
-// ---- search ----
 async function viewSearch(q) {
   const { results } = await api(`/search?q=${encodeURIComponent(q)}`);
   show(
-    header(`Search: ${q}`, `${results.length} ${results.length === 1 ? 'match' : 'matches'}`),
-    results.length ? el('div', {}, ...results.map(threadCard)) : el('p', { class: 'empty', text: 'Nothing matched. Try a plainer word — people describe problems, not categories.' }),
+    el('h1', { text: 'Search' }),
+    el('p', { class: 'hint', text: `${results.length} found for “${q}”` }),
+    results.length ? el('div', {}, ...results.map(postCard)) : el('p', { class: 'empty', text: 'Nothing found. Try a simpler word.' }),
   );
 }
 
-// ---- new channel ----
-function viewNewChannel() {
-  if (requireSignIn('start a channel')) return;
-  const name = el('input', { maxlength: 60, placeholder: 'e.g. Bike Repair Corner' });
-  const kind = el('select', {},
-    el('option', { value: 'help', text: 'Ask for help — problems and expert opinions' }),
-    el('option', { value: 'group', text: 'Group — a standing shared interest' }),
-    el('option', { value: 'social', text: 'Together — company and meetups' }),
-  );
-  const description = el('input', { maxlength: 280, placeholder: 'One line on what belongs here' });
-  const topics = el('input', { placeholder: 'Topics, comma separated — these drive the skill badges' });
-  const status = el('div', { class: 'small' });
-  const create = el('button', { class: 'primary', text: 'Create channel' });
-
-  create.addEventListener('click', async () => {
-    create.disabled = true;
-    try {
-      const { channel } = await api('/channels', { method: 'POST', body: {
-        name: name.value.trim(),
-        kind: kind.value,
-        description: description.value.trim(),
-        topics: topics.value.split(',').map((t) => t.trim()).filter(Boolean),
-      } });
-      await loadChannels();
-      go(`#/c/${channel.slug}`);
-    } catch (error) {
-      status.replaceChildren(el('span', { class: 'err', text: error.message }));
-    } finally {
-      create.disabled = false;
-    }
-  });
-
-  show(
-    header('Start a channel', 'Three a day, so the list stays somewhere people can actually find things.'),
-    el('div', { class: 'card' },
-      el('label', { class: 'field' }, el('span', { text: 'Name' }), name),
-      el('label', { class: 'field' }, el('span', { text: 'Kind' }), kind),
-      el('label', { class: 'field' }, el('span', { text: 'Description' }), description),
-      el('label', { class: 'field' }, el('span', { text: 'Topics' }), topics),
-      el('div', { class: 'row' }, create, status),
-    ),
-  );
-}
-
-// ---- join / sign in ----
 function viewJoin() {
   let mode = 'signup';
-  const handle = el('input', { placeholder: 'handle', autocomplete: 'username' });
-  const displayName = el('input', { placeholder: 'Name people will see', autocomplete: 'name' });
-  const password = el('input', { type: 'password', placeholder: 'At least 10 characters', autocomplete: 'current-password' });
-  const status = el('div', { class: 'small' });
-  const submit = el('button', { class: 'primary', text: 'Create account' });
-  const toggle = el('button', { class: 'ghost', text: 'I already have an account' });
-  const nameField = el('label', { class: 'field' }, el('span', { text: 'Display name' }), displayName);
+  const username = el('input', { type: 'text', id: 'j-user', autocomplete: 'username' });
+  const name = el('input', { type: 'text', id: 'j-name', autocomplete: 'name' });
+  const password = el('input', { type: 'password', id: 'j-pass', autocomplete: 'current-password' });
+  const note = el('p', { style: 'margin:0' });
+  const nameField = el('label', { class: 'field' }, el('span', { class: 'lab', text: 'Your name' }), name);
+  const heading = el('h1', { text: 'Join Commons' });
+  const submit = el('button', { class: 'primary', text: 'Create my account' });
+  const swap = el('button', { class: 'quiet', text: 'I already have an account' });
 
-  toggle.addEventListener('click', () => {
+  swap.addEventListener('click', () => {
     mode = mode === 'signup' ? 'login' : 'signup';
-    submit.textContent = mode === 'signup' ? 'Create account' : 'Sign in';
-    toggle.textContent = mode === 'signup' ? 'I already have an account' : 'I need an account';
-    nameField.style.display = mode === 'signup' ? 'block' : 'none';
-    status.replaceChildren();
+    const joining = mode === 'signup';
+    heading.textContent = joining ? 'Join Commons' : 'Sign in';
+    submit.textContent = joining ? 'Create my account' : 'Sign in';
+    swap.textContent = joining ? 'I already have an account' : 'I need an account';
+    nameField.hidden = !joining;
+    note.replaceChildren();
   });
 
   submit.addEventListener('click', async () => {
     submit.disabled = true;
     try {
       const body = mode === 'signup'
-        ? { handle: handle.value.trim(), displayName: displayName.value.trim() || undefined, password: password.value }
-        : { handle: handle.value.trim(), password: password.value };
+        ? { handle: username.value.trim(), displayName: name.value.trim() || undefined, password: password.value }
+        : { handle: username.value.trim(), password: password.value };
       const { user } = await api(`/auth/${mode}`, { method: 'POST', body });
       state.me = user;
-      renderAccount();
-      await Promise.all([loadChannels(), loadWaves()]);
-      toast(`Welcome, ${user.displayName}.`);
+      renderAccount(); renderNav();
+      await Promise.all([loadCategories(), loadHellos()]);
+      say(`Welcome, ${user.displayName}.`);
       go('#/');
     } catch (error) {
-      status.replaceChildren(el('span', { class: 'err', text: error.message }));
-    } finally {
-      submit.disabled = false;
-    }
+      note.replaceChildren(el('span', { class: 'err', text: error.message }));
+    } finally { submit.disabled = false; }
   });
 
   show(
-    header('Join Commons',
-      'One handle, one password. No email, because nothing here needs to reach you anywhere else.'),
-    el('div', { class: 'card', style: 'max-width:440px' },
-      el('label', { class: 'field' }, el('span', { text: 'Handle' }), handle),
+    heading,
+    el('div', { class: 'card', style: 'max-width:28rem' },
+      el('label', { class: 'field' },
+        el('span', { class: 'lab', text: 'Username' }),
+        el('span', { class: 'help', text: 'Letters and numbers. This is how people see you.' }),
+        username),
       nameField,
-      el('label', { class: 'field' }, el('span', { text: 'Password' }), password),
-      el('div', { class: 'row' }, submit, toggle),
-      status,
+      el('label', { class: 'field' },
+        el('span', { class: 'lab', text: 'Password' }),
+        el('span', { class: 'help', text: 'At least 10 characters. There is no email, so it cannot be reset.' }),
+        password),
+      el('div', { class: 'row' }, submit, swap),
+      note,
     ),
   );
 }
@@ -835,86 +901,84 @@ function viewJoin() {
 
 async function route() {
   const hash = window.location.hash || '#/';
-  renderChannelNav();
+  renderNav();
   try {
-    if (hash.startsWith('#/c/')) return await viewChannel(decodeURIComponent(hash.slice(4)));
-    if (hash.startsWith('#/t/')) return await viewThread(decodeURIComponent(hash.slice(4)));
-    if (hash.startsWith('#/u/')) return await viewProfile(decodeURIComponent(hash.slice(4)));
-    if (hash.startsWith('#/search/')) return await viewSearch(decodeURIComponent(hash.slice(9)));
-    if (hash === '#/meetups') return await viewMeetups();
+    if (hash.startsWith('#/c/')) return await viewCategory(decodeURIComponent(hash.slice(4)));
+    if (hash.startsWith('#/p/')) return await viewPost(decodeURIComponent(hash.slice(4)));
+    if (hash.startsWith('#/u/')) return await viewPerson(decodeURIComponent(hash.slice(4)));
+    if (hash.startsWith('#/plan/')) return viewPlan(decodeURIComponent(hash.slice(7)));
+    if (hash.startsWith('#/find/')) return await viewSearch(decodeURIComponent(hash.slice(7)));
+    if (hash === '#/meet') return await viewMeetups();
     if (hash === '#/people') return await viewPeople();
-    if (hash === '#/me') return viewMe();
-    if (hash === '#/waves') return await viewWaves();
-    if (hash === '#/join') return viewJoin();
-    if (hash === '#/new-channel') return viewNewChannel();
-    return await viewHome();
+    if (hash === '#/you') return viewYou();
+    if (hash === '#/hellos') return await viewHellos();
+    if (hash === '#/in') return viewJoin();
+    return viewHome();
   } catch (error) {
-    show(header('That did not work', error.message),
-      el('button', { onclick: () => go('#/'), text: 'Back to the front page' }));
+    show(
+      el('h1', { text: 'That did not work' }),
+      el('p', { class: 'hint', text: error.message }),
+      el('button', { class: 'primary', text: 'Go home', onclick: () => go('#/') }),
+    );
   }
 }
 
-// -------------------------------------------------------------- live updates
+// ------------------------------------------------------------- live updates
 
 function connectStream() {
   const stream = new EventSource(`${API}/stream`);
-  const refresh = () => { route(); };
+  const hash = () => window.location.hash || '#/';
 
-  // Only re-render when the change could be on screen — an unrelated channel
-  // getting a post should not yank the page out from under someone reading.
   stream.addEventListener('thread.created', (event) => {
     const data = JSON.parse(event.data);
-    const channel = state.channels.find((c) => c.id === data.channelId);
-    if (channel) channel.threadCount += 1;
-    renderChannelNav();
-    if (window.location.hash === `#/c/${channel?.slug}` || window.location.hash === '#/') refresh();
+    const category = state.categories.find((c) => c.id === data.channelId);
+    if (category) category.threadCount += 1;
+    if (hash() === `#/c/${category?.slug}` || hash() === '#/') route();
   });
   stream.addEventListener('reply.created', (event) => {
     const data = JSON.parse(event.data);
-    if (window.location.hash === `#/t/${data.threadId}`) refresh();
+    const category = state.categories.find((c) => c.id === data.channelId);
+    if (hash() === `#/p/${data.threadId}` || hash() === `#/c/${category?.slug}`) route();
   });
   stream.addEventListener('thread.updated', (event) => {
     const data = JSON.parse(event.data);
-    if (window.location.hash === `#/t/${data.threadId}`) refresh();
+    if (hash() === `#/p/${data.threadId}`) route();
   });
   stream.addEventListener('presence.changed', () => {
-    if (window.location.hash === '#/people') refresh();
+    if (hash() === '#/people') route();
   });
   stream.addEventListener('wave.sent', (event) => {
     const data = JSON.parse(event.data);
     if (state.me && data.toUserId === state.me.id) {
-      state.unreadWaves += 1;
-      renderAccount();
-      toast('Somebody waved at you.');
+      state.unreadHellos += 1;
+      renderNav();
+      say('Somebody said hello to you.');
     }
   });
-  // EventSource reconnects on its own; nothing to do but note the gap.
-  stream.onerror = () => {};
+  stream.onerror = () => {}; // EventSource retries on its own.
 }
 
 // ---------------------------------------------------------------- bootstrap
 
-async function loadChannels() {
+async function loadCategories() {
   const { channels } = await api('/channels');
-  state.channels = channels;
-  renderChannelNav();
+  state.categories = channels;
 }
 
-async function loadWaves() {
+async function loadHellos() {
   if (!state.me) return;
   try {
     const { unread } = await api('/waves');
-    state.unreadWaves = unread;
-    renderAccount();
-  } catch { /* not signed in any more; the next action will say so */ }
+    state.unreadHellos = unread;
+    renderNav();
+  } catch { /* signed out somewhere else; the next action will say so */ }
 }
 
 document.getElementById('searchForm').addEventListener('submit', (event) => {
   event.preventDefault();
   const q = document.getElementById('searchInput').value.trim();
-  if (q) go(`#/search/${encodeURIComponent(q)}`);
+  if (q) go(`#/find/${encodeURIComponent(q)}`);
 });
-
 window.addEventListener('hashchange', route);
 
 (async function start() {
@@ -923,8 +987,8 @@ window.addEventListener('hashchange', route);
     state.me = user;
   } catch { state.me = null; }
   renderAccount();
-  await loadChannels();
-  await loadWaves();
+  await loadCategories();
+  await loadHellos();
   await route();
   connectStream();
 })();

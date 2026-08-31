@@ -41,102 +41,126 @@ const assertNoPlaceholders = async (where) => {
 
 const unique = Date.now().toString(36);
 await page.goto(BASE, { waitUntil: 'networkidle' });
+// The app registers a service worker. Let it finish installing before any
+// step reloads, or a reload can race a half-populated shell cache.
+await page.evaluate(() => navigator.serviceWorker?.ready).catch(() => {});
+await page.waitForTimeout(600);
 
-await step('sidebar lists seeded channels in three groups', async () => {
-  await page.waitForSelector('#channelNav .navgroup');
-  const groups = await page.$$eval('#channelNav .navgroup h3', (n) => n.map((x) => x.textContent));
-  if (groups.length !== 3) throw new Error(`groups=${JSON.stringify(groups)}`);
+await step('home shows six categories under two headings', async () => {
+  await page.waitForSelector('.cat');
+  const cards = await page.$$('.cat');
+  if (cards.length !== 6) throw new Error(`expected 6 category cards, found ${cards.length}`);
+  const headings = await page.$$eval('main h2', (n) => n.map((x) => x.textContent));
+  if (!headings.includes('Ask for help') || !headings.includes('Meet people')) {
+    throw new Error(`headings=${JSON.stringify(headings)}`);
+  }
+  // The standard caps a category name at 3 words; check the rendered names.
+  const names = await page.$$eval('.cat .nm', (n) => n.map((x) => x.textContent));
+  const tooLong = names.filter((n) => n.replace(/&/g, '').split(/\s+/).filter(Boolean).length > 3);
+  if (tooLong.length) throw new Error(`category names over 3 words: ${tooLong.join(', ')}`);
 });
 
-await step('home page renders', async () => {
+await step('home page renders and asks the visitor a question', async () => {
   await page.waitForSelector('main h1');
   const h1 = await page.textContent('main h1');
-  if (!h1.includes('Commons')) throw new Error(h1);
+  if (!h1.includes('What do you need')) throw new Error(`h1 is "${h1}"`);
   await assertNoPlaceholders('the home page');
+  // "No pages of writing" means two things, both checkable: no explanatory
+  // prose outside the cards, and every category hint inside its word budget.
+  const prose = await page.$$eval('main > p, main > div:not(.cats) > p', (n) => n.map((x) => x.textContent.trim()).filter(Boolean));
+  if (prose.length) throw new Error(`home page has prose outside the cards: ${JSON.stringify(prose)}`);
+  const hints = await page.$$eval('.cat .hn', (n) => n.map((x) => x.textContent.trim()));
+  const wordy = hints.filter((h) => h.split(/\s+/).filter(Boolean).length > 8);
+  if (wordy.length) throw new Error(`category hints over 8 words: ${wordy.join(' | ')}`);
 });
 
 await step('sign up through the UI', async () => {
-  await page.click('#account button');
+  await page.click('#account button:text("Sign in")');
   await page.waitForSelector('main h1:text("Join Commons")');
-  await page.fill('.card input >> nth=0', `browser${unique}`);
-  await page.fill('.card input >> nth=1', 'Browser Tester');
-  await page.fill('input[type=password]', 'a-good-long-password');
-  await page.click('button:text("Create account")');
-  await page.waitForSelector('#account a:text("Browser Tester")');
+  await page.fill('#j-user', `browser${unique}`);
+  await page.fill('#j-name', 'Browser Tester');
+  await page.fill('#j-pass', 'a-good-long-password');
+  await page.click('button:text("Create my account")');
+  await page.waitForSelector('#account button:text("Sign out")');
 });
 
 await step('post a question in a help channel', async () => {
   await page.goto(`${BASE}/#/c/home-repair`);
   await page.reload({ waitUntil: 'networkidle' });
-  await page.click('summary');
-  await page.fill('label.field:has(span:text("Title")) input', 'Draught under the back door');
-  await page.fill('textarea', 'Cold air comes in even with the door shut. Tried a rolled towel.');
-  await page.fill('label.field:has(span:text("Tags")) input', 'draughts, doors');
+  // The ask box is visible on load now — no disclosure to open first.
+  await page.fill('#q-title', 'Draught under the back door');
+  await page.fill('#q-body', 'Cold air comes in even with the door shut. Tried a rolled towel.');
+  await page.click('button:text("Add a photo or subjects")');
+  await page.fill('#q-subjects', 'draughts, doors');
   await page.click('button:text("Ask")');
   await page.waitForSelector('main h1:text("Draught under the back door")');
-  if (!(await page.isVisible('.chip:text("#draughts")'))) throw new Error('tags not shown');
+  if (!(await page.isVisible('.tag:text("draughts")'))) throw new Error('subjects not shown');
 });
 
 await step('reply, and an unaccepted reply renders nothing extra', async () => {
-  await page.fill('.card textarea', 'Fit a brush strip to the bottom of the door.');
-  await page.click('button:text("Reply")');
-  await page.waitForSelector('.reply');
-  await assertNoPlaceholders('an unaccepted reply');
+  await page.fill('#answer', 'Fit a brush strip to the bottom of the door.');
+  await page.click('button:text("Send")');
+  await page.waitForSelector('.answer');
+  await assertNoPlaceholders('an answer');
 });
 
 await step('mark the reply as the answer', async () => {
-  await page.click('button:text("This solved it")');
-  await page.waitForSelector('.reply.accepted');
-  if (!(await page.isVisible('.chip.answered'))) throw new Error('no answered chip');
-  await assertNoPlaceholders('an accepted reply');
+  await page.click('button:text("This one worked")');
+  await page.waitForSelector('.answer.worked');
+  if (!(await page.isVisible('.tag.worked'))) throw new Error('no "answer that worked" mark');
+  await assertNoPlaceholders('the answer that worked');
 });
 
 await step('profile skills produce a topic badge', async () => {
-  await page.click('#account a >> nth=0');
-  await page.waitForSelector('main h1:text("Your profile")');
-  await page.fill('label.field:has(span:text("Skills, comma separated")) input', 'carpentry, draughts');
-  await page.fill('label.field:has(span:text("Neighbourhood")) input', 'Riverside');
+  await page.click('nav.main a:text("You")');
+  await page.waitForSelector('main h1:text("Your page")');
+  await page.fill('#p-help', 'carpentry, draughts');
+  await page.fill('#p-area', 'Riverside');
   await page.click('button:text("Save")');
   await page.waitForSelector('.ok');
   await page.goto(`${BASE}/#/c/home-repair`);
   await page.reload({ waitUntil: 'networkidle' });
-  await page.waitForSelector('.thread-item');
-  if (!(await page.isVisible('.chip.topic'))) throw new Error('expected a "says they know" chip');
+  await page.waitForSelector('.post');
+  await page.click('.post .t:text("Draught under the back door")');
+  await page.waitForSelector('.answer');
+  if (!(await page.isVisible('.tag.knows'))) throw new Error('expected a "says they know" mark');
 });
 
 await step('create a meetup and RSVP state renders', async () => {
   await page.goto(`${BASE}/#/c/meetups`);
   await page.reload({ waitUntil: 'networkidle' });
-  await page.click('summary');
-  await page.fill('label.field:has(span:text("Title")) input', 'Sunday morning loop');
-  await page.fill('textarea', 'Slow pace, about an hour.');
-  await page.check('main label.check input');
-  await page.fill('input[type=datetime-local]', new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 16));
-  await page.fill('label.field:has(span:text("Where")) input', 'Bench by the pond');
-  await page.click('button:text("Post")');
-  await page.waitForSelector('button:text("Can\'t make it")');
-  await assertNoPlaceholders('a meetup thread');
+  await page.click('button:text("Plan a get-together")');
+  await page.waitForSelector('main h1:text("Plan a get-together")');
+  await page.fill('#g-title', 'Sunday morning loop');
+  await page.fill('#g-body', 'Slow pace, about an hour.');
+  await page.fill('#g-when', new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 16));
+  await page.fill('#g-where', 'Bench by the pond');
+  await page.click('button:text("Post it")');
+  await page.waitForSelector('button:text("I cannot come")');
+  await assertNoPlaceholders('a get-together');
 });
 
 await step("what's on lists the meetup", async () => {
-  await page.click('.navlink[data-route="#/meetups"]');
-  await page.waitForSelector('main h1:text("What\'s on")');
-  if (!(await page.isVisible('.thread-item .t:text("Sunday morning loop")'))) throw new Error('meetup missing');
+  await page.click('nav.main a:text("Together")');
+  await page.waitForSelector('main h1:text("Get-togethers")');
+  if (!(await page.isVisible('.post .t:text("Sunday morning loop")'))) throw new Error('get-together missing');
 });
 
 await step('members page shows open-to-chat presence', async () => {
-  await page.check('#account label.check input');
-  await page.click('.navlink[data-route="#/people"]');
-  await page.waitForSelector('main h1:text("Members")');
-  await page.waitForSelector('.presence');
-  await assertNoPlaceholders('the members page');
+  await page.click('nav.main a:text("You")');
+  await page.waitForSelector('main h1:text("Your page")');
+  await page.check('label.toggle input');
+  await page.click('nav.main a:text("People")');
+  await page.waitForSelector('main h1:text("People")');
+  await page.waitForSelector('.free');
+  await assertNoPlaceholders('the people page');
 });
 
 await step('search finds the thread by title', async () => {
   await page.fill('#searchInput', 'draught');
   await page.press('#searchInput', 'Enter');
-  await page.waitForSelector('main h1:text("Search: draught")');
-  if (!(await page.$$('.thread-item')).length) throw new Error('no search hits');
+  await page.waitForSelector('main h1:text("Search")');
+  if (!(await page.$$('.post')).length) throw new Error('no search hits');
 });
 
 await step('live update arrives over SSE', async () => {
@@ -145,17 +169,18 @@ await step('live update arrives over SSE', async () => {
   // A hash change does not reload, so wait for the channel itself to render
   // before counting — otherwise the count is whatever the last view left.
   await page.waitForSelector('main h1:text("Chat & Check In")');
-  const before = (await page.$$('.thread-item')).length;
+  // A social category renders as a chat stream, so messages are .msg not .post.
+  const before = (await page.$$('.msg')).length;
 
   const other = await browser.newPage();
   await other.request.post(`${BASE}/api/community/auth/signup`, {
     data: { handle: `sse${unique}`, password: 'a-good-long-password' },
   });
   await other.request.post(`${BASE}/api/community/channels/chat/threads`, {
-    data: { title: `Live from another window ${unique}`, body: 'Did this appear?' },
+    data: { title: `Live from another window ${unique}`, body: `Did this appear ${unique}?` },
   });
-  await page.waitForSelector(`.thread-item .t:text("Live from another window ${unique}")`, { timeout: 5000 });
-  const after = (await page.$$('.thread-item')).length;
+  await page.waitForSelector(`.msg .body:text("Did this appear ${unique}")`, { timeout: 5000 });
+  const after = (await page.$$('.msg')).length;
   if (after !== before + 1) throw new Error(`before=${before} after=${after}`);
   await other.close();
 });
@@ -166,11 +191,11 @@ await step('a post renders as text, never as markup', async () => {
   });
   await page.goto(`${BASE}/#/c/chat`);
   await page.reload({ waitUntil: 'networkidle' });
-  await page.waitForSelector('.thread-item');
+  await page.waitForSelector('.msg');
   if (await page.evaluate(() => window.__xss)) throw new Error('markup executed');
-  if (await page.$('.thread-item img')) throw new Error('markup was parsed into the DOM');
-  const titles = await page.$$eval('.thread-item .t', (n) => n.map((x) => x.textContent));
-  if (!titles.some((t) => t.includes('<img src=x'))) throw new Error('title not shown verbatim');
+  if (await page.$('main img')) throw new Error('markup was parsed into the DOM');
+  const bodies = await page.$$eval('.msg .body', (n) => n.map((x) => x.textContent));
+  if (!bodies.some((t) => t.includes('<script>'))) throw new Error('message not shown verbatim');
 });
 
 await browser.close();

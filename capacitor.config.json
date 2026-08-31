@@ -1,0 +1,30 @@
+{
+  "appId": "org.commons.app",
+  "appName": "Commons",
+  "webDir": "public",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "https",
+    "hostname": "commons.example.org",
+    "url": "https://commons.example.org",
+    "cleartext": false
+  },
+  "ios": {
+    "contentInset": "always",
+    "limitsNavigationsToAppBoundDomains": true
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "backgroundColor": "#12558FFF",
+      "launchAutoHide": true,
+      "launchShowDuration": 600
+    },
+    "StatusBar": {
+      "style": "LIGHT",
+      "backgroundColor": "#12558F"
+    }
+  }
+}

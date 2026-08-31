@@ -49,7 +49,7 @@ export const SEED_CHANNELS: SeedChannel[] = [
     slug: 'clubs',
     name: 'Clubs & Hobbies',
     kind: 'group',
-    description: 'Cooking, crafts, books, parenting. Join one or start one.',
+    description: 'Cooking, crafts, books. Join one or start one.',
     topics: [
       'cooking', 'baking', 'preserving',
       'sewing', 'woodworking', 'repair-cafe', 'crafts',
@@ -70,7 +70,7 @@ export const SEED_CHANNELS: SeedChannel[] = [
     slug: 'meetups',
     name: 'Meetups',
     kind: 'social',
-    description: 'Walks, coffee, shared meals. Post a time and place.',
+    description: 'Walks, coffee, meals. Post a time and place.',
     topics: ['meetups', 'walking', 'coffee', 'meals'],
   },
 ];

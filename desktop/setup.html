@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Which Commons?</title>
+<style>
+  body { font: 16px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+         margin: 0; padding: 22px; background: #F5F5F2; color: #15171A; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  p { color: #53575D; margin: 0 0 16px; font-size: 15px; }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  input { width: 100%; font: inherit; padding: 12px; min-height: 48px;
+          border: 2px solid #A9ABA6; border-radius: 10px; box-sizing: border-box; }
+  button { font: inherit; font-weight: 600; margin-top: 14px; min-height: 48px;
+           padding: 12px 20px; border-radius: 10px; border: 2px solid #12558F;
+           background: #12558F; color: #fff; cursor: pointer; }
+  .err { color: #A32217; font-size: 14px; margin-top: 8px; min-height: 20px; }
+</style>
+</head>
+<body>
+  <h1>Which Commons do you want to open?</h1>
+  <p>Paste the web address your community uses.</p>
+  <label for="url">Web address</label>
+  <input id="url" type="url" placeholder="https://commons.example.org" autofocus>
+  <p class="err" id="err"></p>
+  <button id="go">Open</button>
+  <script>
+    const input = document.getElementById('url');
+    const err = document.getElementById('err');
+    function submit() {
+      const value = input.value.trim();
+      try {
+        const url = new URL(value);
+        if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error();
+      } catch {
+        err.textContent = 'That is not a web address. It should start with https://';
+        return;
+      }
+      window.commons.setServer(value);
+    }
+    document.getElementById('go').addEventListener('click', submit);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  </script>
+</body>
+</html>

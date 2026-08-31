@@ -55,18 +55,24 @@ against a non-localhost host, and refuses to add to an instance that already has
 members. `SEED_ALLOW_REMOTE=1` and `SEED_FORCE=1` override those; read what they
 say first.
 
-There is also a browser pass over the Commons client, kept out of `npm test`
+There are also two browser passes, kept out of `npm test`
 because it needs a running server and a real browser:
 
 ```bash
 npm install --no-save playwright && npx playwright install chromium
 COMMUNITY_DATA=:memory: PORT=3210 npm start &
-BASE=http://127.0.0.1:3210 npm run test:browser
+BASE=http://127.0.0.1:3210 npm run test:browser   # 13 interface checks
+BASE=http://127.0.0.1:3210 npm run test:pwa       # 7 install checks
 ```
 
-It catches what the API tests structurally cannot — a falsy value rendered into
+They catch what the API tests structurally cannot — a falsy value rendered into
 the page as the text "null", a live event that never arrives, markup in a post
-escaping into the DOM.
+escaping into the DOM, a manifest that no browser would offer to install, a
+service worker serving yesterday's posts.
+
+Installing Commons as an app on a phone or a computer is covered in
+[docs/apps.md](docs/apps.md). The interface is held to
+[docs/simple-ui.md](docs/simple-ui.md).
 
 ## Configuration
 

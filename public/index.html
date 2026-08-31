@@ -2,45 +2,51 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Commons — neighbours, experts, and company</title>
-<meta name="description" content="Ask the people nearby for help with the house, join a group, or just find some company.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%23171a21'/%3E%3Ccircle%20cx='11'%20cy='12'%20r='4'%20fill='%23e8a33d'/%3E%3Ccircle%20cx='21'%20cy='12'%20r='4'%20fill='%23e8a33d'/%3E%3Ccircle%20cx='16'%20cy='21.5'%20r='4'%20fill='%23e8a33d'/%3E%3C/svg%3E">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Commons</title>
+<meta name="description" content="Ask your neighbours for help, join a club, or find company.">
+<meta name="theme-color" content="#12558F">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%2032%2032%27%3E%3Crect%20width%3D%2732%27%20height%3D%2732%27%20rx%3D%277%27%20fill%3D%27%2312558F%27/%3E%3Ccircle%20cx%3D%2711%27%20cy%3D%2712%27%20r%3D%274%27%20fill%3D%27%23fff%27/%3E%3Ccircle%20cx%3D%2721%27%20cy%3D%2712%27%20r%3D%274%27%20fill%3D%27%23fff%27/%3E%3Ccircle%20cx%3D%2716%27%20cy%3D%2721.5%27%20r%3D%274%27%20fill%3D%27%23fff%27/%3E%3C/svg%3E">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Commons">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="stylesheet" href="/commons.css">
 </head>
 <body>
-<div id="app">
-  <nav id="sidebar">
-    <div>
-      <h1 class="brand">Commons<small>ask for help · join a group · find company</small></h1>
-    </div>
 
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="#/">Commons</a>
     <form id="searchForm" role="search">
-      <input id="searchInput" type="search" placeholder="Search everything…" aria-label="Search">
+      <label class="lab" for="searchInput" hidden>Search</label>
+      <input id="searchInput" type="search" placeholder="Search" aria-label="Search">
+      <button type="submit">Search</button>
     </form>
-
     <div id="account"></div>
+  </div>
+</header>
 
-    <div id="channelNav"></div>
+<nav class="main" aria-label="Main">
+  <ul id="nav"></ul>
+</nav>
 
-    <div class="navgroup">
-      <h3>Around here</h3>
-      <button class="navlink" data-route="#/meetups">What's on</button>
-      <button class="navlink" data-route="#/people">Members</button>
-      <button class="navlink" data-route="#/new-channel">Start a channel</button>
-      <a class="navlink" href="/estimate/">Price estimator ↗</a>
-    </div>
+<main id="view"></main>
 
-    <p class="small muted" style="margin-top:auto">
-      Everything posted here is public. Nobody on Commons is vetted or licensed —
-      treat advice as experience, not expertise.
-    </p>
-  </nav>
+<div id="toast" role="status" hidden></div>
+<dialog id="dialog" aria-labelledby="dialogTitle"></dialog>
 
-  <main id="view" aria-live="polite"></main>
-</div>
-
-<div id="toast" hidden></div>
 <script type="module" src="/commons.js"></script>
+<script>
+  // Registered after load so it never competes with the first paint. It only
+  // caches the shell; posts and people always come from the network.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
+  }
+</script>
 </body>
 </html>
