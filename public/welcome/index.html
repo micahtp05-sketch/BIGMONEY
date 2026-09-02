@@ -3,110 +3,156 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Commons — help from the people nearby</title>
+<title>Commons — somebody nearby has done this before</title>
 <meta name="description" content="Somebody nearby has done this before. Ask for help with the house, join a club, or find company.">
 <meta name="theme-color" content="#080D16">
 <link rel="icon" href="/icons/icon-192.png">
+<link rel="preload" href="/welcome/fonts/instrument-serif.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/welcome/fonts/public-sans-400.woff2" as="font" type="font/woff2" crossorigin>
 <style>
+  /* FONTS */
+  @font-face { font-family: "Instrument Serif"; font-style: normal; font-weight: 400; font-display: swap; src: url(/welcome/fonts/instrument-serif.woff2) format("woff2"); }
+  @font-face { font-family: "Instrument Serif"; font-style: italic; font-weight: 400; font-display: swap; src: url(/welcome/fonts/instrument-serif-italic.woff2) format("woff2"); }
+  @font-face { font-family: "Public Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url(/welcome/fonts/public-sans-400.woff2) format("woff2"); }
+  @font-face { font-family: "Public Sans"; font-style: normal; font-weight: 600; font-display: swap; src: url(/welcome/fonts/public-sans-600.woff2) format("woff2"); }
+  @font-face { font-family: "Public Sans"; font-style: normal; font-weight: 700; font-display: swap; src: url(/welcome/fonts/public-sans-700.woff2) format("woff2"); }
+  /* /FONTS */
+
   :root {
     --night: #080D16;
-    --night-2: #0D1523;
+    --night-2: #0E1626;
     --paper: #FAFAF8;
+    --paper-2: #F1F2EE;
     --ink: #14171A;
     --muted: #5A6068;
+    --faint: #8C929A;
     --rule: #E2E3DF;
     --sky: #6EA8FA;
     --help: #6EA8FA;
     --group: #C0A2EA;
     --social: #6FD79B;
-    --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
-    --body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --display: "Instrument Serif", "Iowan Old Style", Palatino, Georgia, serif;
+    --body: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
-  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
-  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 18px; line-height: 1.6; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 18px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
   a { color: inherit; }
   :focus-visible { outline: 3px solid var(--sky); outline-offset: 3px; border-radius: 6px; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  /* ---------------------------------------------------------------- header */
+  .bar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: .7rem 1.5rem; gap: 1rem;
+    background: rgba(250,250,248,.82); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--rule);
+    transform: translateY(-100%); transition: transform .35s ease;
+  }
+  .bar.show { transform: none; }
+  /* Over the dark section the light frosting reads as a grey slab; swap it. */
+  .bar.over-dark { background: rgba(8,13,22,.78); border-bottom-color: rgba(255,255,255,.12); color: #F2F5F9; }
+  .bar.over-dark .pill { background: #F2F5F9; color: #0C1523; }
+  .bar { transition: transform .35s ease, background .35s ease, color .35s ease; }
+  @media (prefers-reduced-motion: reduce) { .bar { transition: none; } }
+  .bar .wordmark { font-family: var(--display); font-size: 1.45rem; text-decoration: none; letter-spacing: -0.01em; }
+  .bar .pill { font-size: .92rem; font-weight: 600; text-decoration: none; padding: .55rem 1.05rem; border-radius: 999px; background: var(--ink); color: var(--paper); }
 
   /* ------------------------------------------------------------------ hero */
   .hero {
     position: relative; min-height: 100svh; display: grid; place-items: center;
-    background: radial-gradient(120% 90% at 50% 10%, #12203A 0%, var(--night) 60%);
-    color: #F2F5F9; overflow: hidden; isolation: isolate;
+    background: var(--night); color: #F2F5F9; overflow: hidden; isolation: isolate;
   }
   #scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; z-index: 0; }
   .hero::after {
-    /* Keeps text legible over whatever drifts underneath it. */
     content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
     background:
-      radial-gradient(38% 26% at 50% 46%, rgba(8,13,22,.72) 0%, rgba(8,13,22,.28) 60%, rgba(8,13,22,0) 100%),
-      radial-gradient(85% 70% at 50% 50%, rgba(8,13,22,0) 40%, rgba(8,13,22,.55) 100%);
+      radial-gradient(40% 28% at 50% 47%, rgba(8,13,22,.7) 0%, rgba(8,13,22,.25) 62%, rgba(8,13,22,0) 100%),
+      radial-gradient(90% 75% at 50% 50%, rgba(8,13,22,0) 45%, rgba(8,13,22,.6) 100%);
   }
-  .hero-in { position: relative; z-index: 2; text-align: center; padding: 4rem 1.5rem; max-width: 46rem; }
+  .hero-in { position: relative; z-index: 2; text-align: center; padding: 5rem 1.5rem 4rem; max-width: 48rem; }
   .hero h1 {
     font-family: var(--display); font-weight: 400; margin: 0;
-    font-size: clamp(4rem, 15vw, 9rem); line-height: .95; letter-spacing: -0.02em;
+    font-size: clamp(4.4rem, 16vw, 10rem); line-height: .92; letter-spacing: -0.025em;
     text-shadow: 0 2px 40px rgba(8,13,22,.9), 0 1px 6px rgba(8,13,22,.7);
   }
   .hero .motto {
-    font-family: var(--display); font-weight: 400;
-    margin: 1.4rem auto 0; font-size: clamp(1.45rem, 4vw, 2.3rem); line-height: 1.15;
-    color: #EDF2F8; max-width: 20ch; letter-spacing: -0.01em;
+    font-family: var(--display); font-style: italic; font-weight: 400;
+    margin: 1.3rem auto 0; font-size: clamp(1.55rem, 4.4vw, 2.5rem); line-height: 1.12;
+    color: #F4F7FB; max-width: 22ch; letter-spacing: -0.005em;
     text-shadow: 0 2px 30px rgba(8,13,22,.95), 0 1px 5px rgba(8,13,22,.85);
   }
   .hero .tag {
-    margin: 1.1rem auto 0; font-size: clamp(.98rem, 2vw, 1.08rem); color: #93A4BC;
-    max-width: 34ch; text-shadow: 0 1px 20px rgba(8,13,22,.95), 0 1px 4px rgba(8,13,22,.85);
+    margin: 1.2rem auto 0; font-size: clamp(1rem, 2vw, 1.1rem); color: #A9B8CC;
+    max-width: 36ch; text-shadow: 0 1px 20px rgba(8,13,22,.95), 0 1px 4px rgba(8,13,22,.85);
   }
-  .cta { display: flex; gap: .9rem; justify-content: center; flex-wrap: wrap; margin-top: 2.6rem; }
+  .cta { display: flex; gap: .9rem; justify-content: center; flex-wrap: wrap; margin-top: 2.4rem; }
   .btn {
-    display: inline-flex; align-items: center; min-height: 52px; padding: 0 1.6rem;
+    display: inline-flex; align-items: center; min-height: 54px; padding: 0 1.7rem;
     border-radius: 999px; font-weight: 600; font-size: 1.02rem; text-decoration: none;
-    border: 2px solid rgba(255,255,255,.28); color: #F2F5F9; backdrop-filter: blur(6px);
+    border: 2px solid rgba(255,255,255,.26); color: #F2F5F9;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    transition: transform .18s ease, border-color .18s ease, background .18s ease;
   }
   .btn.solid { background: #F2F5F9; color: #0C1523; border-color: #F2F5F9; }
-  .btn:hover { border-color: #F2F5F9; }
-  .scroll-hint { position: absolute; bottom: 1.6rem; left: 0; right: 0; z-index: 2; text-align: center; color: #7F8FA6; font-size: .82rem; letter-spacing: .12em; text-transform: uppercase; }
+  .btn:hover { border-color: #F2F5F9; transform: translateY(-1px); }
+  @media (prefers-reduced-motion: reduce) { .btn { transition: none; } .btn:hover { transform: none; } }
+  .scroll-hint { position: absolute; bottom: 1.5rem; left: 0; right: 0; z-index: 2; text-align: center; color: #7F8FA6; font-size: .78rem; letter-spacing: .16em; text-transform: uppercase; }
 
   /* -------------------------------------------------------------- sections */
-  section { padding: clamp(4rem, 10vw, 7rem) 1.5rem; }
-  .wrap { max-width: 62rem; margin: 0 auto; }
-  h2 { font-family: var(--display); font-weight: 400; font-size: clamp(2rem, 5vw, 3rem); line-height: 1.05; margin: 0 0 1rem; letter-spacing: -0.01em; }
-  .lede { color: var(--muted); max-width: 36ch; margin: 0; font-size: 1.1rem; }
+  section { padding: clamp(4rem, 10vw, 7.5rem) 1.5rem; }
+  .wrap { max-width: 64rem; margin: 0 auto; }
+  .eyebrow { font-size: .74rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); margin: 0 0 1rem; }
+  h2 { font-family: var(--display); font-weight: 400; font-size: clamp(2.2rem, 5.2vw, 3.4rem); line-height: 1.04; margin: 0 0 1rem; letter-spacing: -0.015em; text-wrap: balance; max-width: 22ch; }
+  .lede { color: var(--muted); max-width: 40ch; margin: 0; font-size: 1.12rem; }
 
-  .needs { display: grid; gap: 1.5rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); margin-top: 3rem; }
-  .need { border-top: 3px solid; padding-top: 1rem; }
-  .need.h { border-color: var(--help); }
-  .need.g { border-color: var(--group); }
-  .need.s { border-color: var(--social); }
-  .need h3 { font-size: 1.2rem; margin: 0 0 .4rem; }
-  .need p { margin: 0; color: var(--muted); font-size: 1rem; }
+  /* Four cards, so two by two — auto-fit left the fourth orphaned on wide screens. */
+  .needs { display: grid; gap: 1.4rem; grid-template-columns: 1fr; margin-top: 3.2rem; }
+  @media (min-width: 46rem) { .needs { grid-template-columns: 1fr 1fr; } }
+  .need { background: #fff; border: 1px solid var(--rule); border-radius: 14px; padding: 1.5rem 1.6rem 1.6rem; position: relative; overflow: hidden; }
+  .need::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; }
+  .need.h::before { background: var(--help); }
+  .need.g::before { background: var(--group); }
+  .need.s::before { background: var(--social); }
+  .need h3 { font-family: var(--display); font-weight: 400; font-size: 1.7rem; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+  .need p { margin: 0; color: var(--muted); font-size: 1rem; line-height: 1.6; }
+
+  .breadth { margin-top: 2.8rem; padding: 1.6rem 1.8rem; border-left: 3px solid var(--ink); }
+  .breadth p { margin: 0; font-family: var(--display); font-size: clamp(1.25rem, 2.6vw, 1.6rem); line-height: 1.35; max-width: 34ch; }
+
+  /* --------------------------------------------------------- how it works */
+  .steps { display: grid; gap: 1.2rem; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); margin-top: 2.6rem; }
+  .step { border-top: 1px solid var(--rule); padding-top: 1.1rem; }
+  .step b { display: block; font-family: var(--display); font-weight: 400; font-size: 1.5rem; margin-bottom: .3rem; }
+  .step span { color: var(--muted); font-size: 1rem; }
 
   /* -------------------------------------------------- the tilted app plate */
   .stage { perspective: 1600px; margin-top: 3rem; }
   .plate {
-    transform: rotateX(var(--rx, 9deg)) rotateY(var(--ry, -12deg)) translateZ(0);
-    transform-style: preserve-3d; transition: transform .25s ease-out;
-    border-radius: 14px; overflow: hidden;
-    box-shadow: 0 2px 4px rgba(12,21,35,.10), 40px 60px 90px -50px rgba(12,21,35,.65);
+    transform: rotateX(var(--rx, 9deg)) rotateY(var(--ry, -12deg));
+    transform-style: preserve-3d; transition: transform .3s ease-out;
+    border-radius: 16px; overflow: hidden;
+    box-shadow: 0 2px 4px rgba(12,21,35,.10), 40px 70px 100px -50px rgba(12,21,35,.65);
     border: 1px solid var(--rule); background: #fff;
   }
-  @media (prefers-reduced-motion: reduce) { .plate { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .plate { transition: none; transform: none; } }
   .plate img { display: block; width: 100%; height: auto; }
 
+  /* ------------------------------------------------------------------ dark */
   .dark { background: var(--night); color: #E9EEF6; }
   .dark h2 { color: #FFF; }
   .dark .lede { color: #9FB0C6; }
-  .dark .btn { border-color: rgba(255,255,255,.3); }
+  .dark .eyebrow { color: #6C7A90; }
+  .lines { display: grid; margin-top: 2.5rem; border-top: 1px solid rgba(255,255,255,.14); }
+  .line { display: grid; gap: .3rem 2rem; grid-template-columns: 1fr; padding: 1.4rem 0; border-bottom: 1px solid rgba(255,255,255,.14); }
+  @media (min-width: 40rem) { .line { grid-template-columns: 14rem 1fr; } }
+  .line b { font-family: var(--display); font-weight: 400; font-size: 1.4rem; letter-spacing: -0.01em; }
+  .line span { color: #A9B8CC; }
 
-  .lines { display: grid; gap: 0; margin-top: 2.5rem; border-top: 1px solid rgba(255,255,255,.14); }
-  .line { display: grid; gap: .4rem 2rem; grid-template-columns: 1fr; padding: 1.4rem 0; border-bottom: 1px solid rgba(255,255,255,.14); }
-  @media (min-width: 40rem) { .line { grid-template-columns: 13rem 1fr; } }
-  .line b { font-weight: 600; }
-  .line span { color: #9FB0C6; }
-
-  footer { padding: 3rem 1.5rem 4rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: .92rem; }
+  footer { padding: 3rem 1.5rem 4.5rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: .92rem; }
+  footer .wrap { display: flex; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap; align-items: baseline; }
+  footer .wordmark { font-family: var(--display); font-size: 1.4rem; color: var(--ink); }
 
   .reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s ease, transform .7s ease; }
   .reveal.in { opacity: 1; transform: none; }
@@ -115,7 +161,12 @@
 </head>
 <body>
 
-<header class="hero">
+<div class="bar" id="bar" aria-hidden="true">
+  <a class="wordmark" href="#top">Commons</a>
+  <a class="pill" href="/">Open Commons</a>
+</div>
+
+<header class="hero" id="top">
   <canvas id="scene" aria-hidden="true"></canvas>
   <div class="hero-in">
     <h1>Commons</h1>
@@ -131,6 +182,7 @@
 
 <section id="what">
   <div class="wrap">
+    <p class="eyebrow reveal">What it is for</p>
     <h2 class="reveal">However small, however odd, somebody has met it before</h2>
     <p class="lede reveal">A radiator that will not heat. A form nobody can read. A Saturday with nothing in it. Every dot behind the wordmark is a person, and the lines are what appears between them when one of them needs a hand.</p>
     <div class="needs">
@@ -151,16 +203,20 @@
         <p>Say hello at 3am. Walk round the park slowly. Take a seat at somebody's table on Sunday. Say one small thing about your day so the week does not pass unnoticed.</p>
       </div>
     </div>
-    <p class="lede reveal" style="margin-top:2.5rem; max-width:44ch">
-      Six categories, because a short list is easier to read than a long one. What
-      goes in them is not six things — it is whatever the people nearby happen to know,
-      which is more than any list would hold.
-    </p>
+    <div class="breadth reveal">
+      <p>Six categories, because a short list is easier to read than a long one. What goes in them is not six things &mdash; it is whatever the people nearby happen to know, which is more than any list would hold.</p>
+    </div>
   </div>
 </section>
 
 <section style="padding-top:0">
   <div class="wrap">
+    <p class="eyebrow reveal">How it goes</p>
+    <div class="steps">
+      <div class="step reveal"><b>You ask</b><span>In plain words. What is happening, and what you have tried.</span></div>
+      <div class="step reveal"><b>Somebody answers</b><span>A person nearby who has done it, and whose identity has been checked.</span></div>
+      <div class="step reveal"><b>You say what worked</b><span>It goes to the top, for the next person with the same problem.</span></div>
+    </div>
     <div class="stage reveal">
       <div class="plate" id="plate">
         <img src="/welcome/app.jpg" alt="The Commons home screen: six category cards under two headings, Ask for help and Meet people." width="1770" height="1290" loading="lazy">
@@ -171,15 +227,16 @@
 
 <section class="dark">
   <div class="wrap">
+    <p class="eyebrow reveal">Trust</p>
     <h2 class="reveal">Built around what can go wrong</h2>
     <p class="lede reveal">Somebody is coming to your door. That shapes most of the decisions here.</p>
     <div class="lines">
-      <div class="line reveal"><b>No addresses</b><span>A get-together has no location field. The host tells each guest privately once they say they are coming.</span></div>
       <div class="line reveal"><b>Helpers are checked</b><span>Anybody who answers a question, lists a trade or hosts a get-together has had their identity confirmed by a person. Asking for help never requires it.</span></div>
       <div class="line reveal"><b>What the badge means</b><span>That a real, contactable person is behind the account &mdash; not that they are a good plumber. Reviews of paid work happened off Commons and say so.</span></div>
-      <div class="line reveal"><b>Reports get read</b><span>Three reports hide something. A moderator then rules on it, and that ruling holds.</span></div>
+      <div class="line reveal"><b>No addresses</b><span>A get-together has no location field. The host tells each guest privately once they say they are coming.</span></div>
       <div class="line reveal"><b>Real accounts only</b><span>Email, phone and username, each confirmed with a code. One account per address and per number, which is most of what stops a spammer opening fifty.</span></div>
       <div class="line reveal"><b>No documents kept</b><span>An identity check records that it happened, when, and how. The document itself is never uploaded and never stored.</span></div>
+      <div class="line reveal"><b>Reports get read</b><span>Three reports hide something. A moderator then rules on it, and that ruling holds.</span></div>
     </div>
     <div class="cta" style="justify-content:flex-start; margin-top:2.5rem">
       <a class="btn solid" href="/">Go to Commons</a>
@@ -189,8 +246,8 @@
 
 <footer>
   <div class="wrap">
-    Commons runs in your browser and installs as an app on iPhone, Android, Mac and Windows.<br>
-    The people and posts shown in screenshots are fictional.
+    <span class="wordmark">Commons</span>
+    <span>Installs as an app on iPhone, Android, Mac and Windows. People and posts in screenshots are fictional.</span>
   </div>
 </footer>
 
@@ -200,19 +257,35 @@
   const canvas = document.getElementById('scene');
   if (canvas) startScene(canvas);
 
-  // Sections arrive as you reach them. Cheap, and it does nothing at all when
-  // the viewer has asked for less motion, because the CSS already showed them.
+  // Sections arrive as you reach them. Under reduced motion the CSS already
+  // shows everything, so this is harmless there.
   const reveals = document.querySelectorAll('.reveal');
   if ('IntersectionObserver' in window) {
     const io = new IntersectionObserver((entries) => {
       for (const entry of entries) {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('in');
-          io.unobserve(entry.target);
-        }
+        if (entry.isIntersecting) { entry.target.classList.add('in'); io.unobserve(entry.target); }
       }
     }, { rootMargin: '0px 0px -12% 0px' });
     for (const node of reveals) io.observe(node);
+
+    // The slim bar appears once the hero has scrolled away.
+    const bar = document.getElementById('bar');
+    const hero = document.getElementById('top');
+    if (bar && hero) {
+      new IntersectionObserver((entries) => {
+        const heroVisible = entries[0]?.isIntersecting ?? true;
+        bar.classList.toggle('show', !heroVisible);
+        bar.setAttribute('aria-hidden', heroVisible ? 'true' : 'false');
+      }, { threshold: 0.08 }).observe(hero);
+
+      // ...and dresses for whatever it is sitting over.
+      const darkSection = document.querySelector('section.dark');
+      if (darkSection) {
+        new IntersectionObserver((entries) => {
+          bar.classList.toggle('over-dark', entries[0]?.isIntersecting ?? false);
+        }, { rootMargin: '-56px 0px -100% 0px' }).observe(darkSection);
+      }
+    }
   } else {
     for (const node of reveals) node.classList.add('in');
   }
