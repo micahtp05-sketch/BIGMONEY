@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Commons — help from the people nearby</title>
-<meta name="description" content="Ask the people nearby for help with the house, join a club, or find company.">
+<meta name="description" content="Somebody nearby has done this before. Ask for help with the house, join a club, or find company.">
 <meta name="theme-color" content="#080D16">
 <link rel="icon" href="/icons/icon-192.png">
 <style>
@@ -49,9 +49,15 @@
     font-size: clamp(4rem, 15vw, 9rem); line-height: .95; letter-spacing: -0.02em;
     text-shadow: 0 2px 40px rgba(8,13,22,.9), 0 1px 6px rgba(8,13,22,.7);
   }
+  .hero .motto {
+    font-family: var(--display); font-weight: 400;
+    margin: 1.4rem auto 0; font-size: clamp(1.45rem, 4vw, 2.3rem); line-height: 1.15;
+    color: #EDF2F8; max-width: 20ch; letter-spacing: -0.01em;
+    text-shadow: 0 2px 30px rgba(8,13,22,.95), 0 1px 5px rgba(8,13,22,.85);
+  }
   .hero .tag {
-    margin: 1.6rem auto 0; font-size: clamp(1.1rem, 2.6vw, 1.4rem); color: #C7D3E3;
-    max-width: 26ch; text-shadow: 0 1px 24px rgba(8,13,22,.95), 0 1px 4px rgba(8,13,22,.8);
+    margin: 1.1rem auto 0; font-size: clamp(.98rem, 2vw, 1.08rem); color: #93A4BC;
+    max-width: 34ch; text-shadow: 0 1px 20px rgba(8,13,22,.95), 0 1px 4px rgba(8,13,22,.85);
   }
   .cta { display: flex; gap: .9rem; justify-content: center; flex-wrap: wrap; margin-top: 2.6rem; }
   .btn {
@@ -113,7 +119,8 @@
   <canvas id="scene" aria-hidden="true"></canvas>
   <div class="hero-in">
     <h1>Commons</h1>
-    <p class="tag">Ask the people nearby for help with the house. Join a club. Find company.</p>
+    <p class="motto">Somebody nearby has done this before.</p>
+    <p class="tag">Ask for help with the house. Join a club. Find company.</p>
     <div class="cta">
       <a class="btn solid" href="/">Go to Commons</a>
       <a class="btn" href="#what">See what it does</a>
@@ -125,7 +132,7 @@
 <section id="what">
   <div class="wrap">
     <h2 class="reveal">Three things, one place</h2>
-    <p class="lede reveal">Every dot behind that heading is a person. The lines are what appears between them when somebody needs a hand.</p>
+    <p class="lede reveal">Every dot behind the wordmark is a person. The lines are what appears between them when somebody needs a hand.</p>
     <div class="needs">
       <div class="need h reveal">
         <h3>Ask for help</h3>
