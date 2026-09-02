@@ -193,6 +193,35 @@ describe('RateLimiter', () => {
   });
 });
 
+describe('what node can actually run', () => {
+  it('has no TypeScript parameter properties anywhere in src', async () => {
+    // `npm start` and `npm test` run TypeScript through node's strip-only mode,
+    // which cannot compile `constructor(private readonly x: T) {}`. It is
+    // legal TypeScript and tsc is happy with it, so nothing catches it until
+    // the file is first imported at runtime. This has bitten twice.
+    const { readdirSync, readFileSync, statSync } = await import('node:fs');
+    const { join } = await import('node:path');
+
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (full.endsWith('.ts')) files.push(full);
+      }
+    };
+    walk('src');
+
+    const offenders: string[] = [];
+    for (const file of files) {
+      const source = readFileSync(file, 'utf8');
+      const match = source.match(/constructor\s*\([^)]*\b(private|public|protected|readonly)\s+\w+\s*:/s);
+      if (match) offenders.push(`${file}: ${match[0].slice(0, 60)}`);
+    }
+    assert.deepEqual(offenders, [], 'these will throw at import time under node --experimental-strip-types');
+  });
+});
+
 describe('EventBus', () => {
   it('delivers to every subscriber and stops after unsubscribe', async () => {
     const { EventBus } = await import('../src/community/events.ts');

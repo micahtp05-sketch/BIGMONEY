@@ -87,7 +87,8 @@ Installing Commons as an app on a phone or a computer is covered in
 | `COMMUNITY_DATA` | `data/community.json` | Where Commons persists. `:memory:` runs without a file. |
 | `COMMUNITY_SIGNUPS_PER_HOUR` | `5` | New accounts allowed per hour from one IP. |
 | `COMMUNITY_MODERATORS` | — | Handles that are moderators from the start, comma separated. |
-| — | — | **A code sender must be supplied in production.** Pass one to `communityRoutes({ sender })`; the default logs codes to the console and refuses to run when `NODE_ENV=production`. |
+| `EMAIL_PROVIDER` | — | `resend`, `postmark` or `sendgrid`. With `EMAIL_API_KEY` and `EMAIL_FROM`. |
+| `SMS_PROVIDER` | — | `twilio` or `messagebird`. With `SMS_API_KEY`, `SMS_FROM`, and `SMS_ACCOUNT_ID` for Twilio. |
 
 ## Estimator API
 
@@ -205,6 +206,33 @@ facts and no judgements: what a member *says* they know (shown with "says they k
 wording, next to the answer where it can be weighed), and how many times an asker
 marked one of their answers as the one that worked. Credit follows the mark, so
 un-marking takes the point back.
+
+**Getting codes to people.** Confirming an address or a number needs something that
+actually sends. Two halves, configured separately, either of which may be absent:
+
+```bash
+EMAIL_PROVIDER=resend      EMAIL_API_KEY=...   EMAIL_FROM='Commons <hello@example.org>'
+SMS_PROVIDER=twilio        SMS_API_KEY=...     SMS_FROM=+15550001111   SMS_ACCOUNT_ID=AC...
+```
+
+Email codes and password-reset codes go by email; phone codes go by SMS. Set neither
+and codes are written to the console, which is fine for development — and the console
+sender **refuses to start under `NODE_ENV=production`**, because an instance that
+silently sends codes nobody receives would let anybody claim any address. Set one half
+only and the other fails with a clear message rather than pretending.
+
+Adding a provider is one file: implement `EmailSender` or `SmsSender`
+(`src/community/senders/`) and add it to the map. The shared `post` helper gives every
+adapter the same behaviour — a ten second timeout, three attempts, retries on 5xx and
+network failures but never on a 4xx, and errors that never repeat the provider's
+response body back, because that body can contain the code that was just sent or the
+API key that sent it.
+
+**None of these adapters has been run against a live provider.** They are written
+against the documented APIs and tested against a stub HTTP server that checks the URL,
+the auth header, the body shape, the retry behaviour and the timeout — everything
+except whether the real endpoint behaves as its documentation says. The first live send
+is the real test, exactly as with the eBay adapter on the estimator side.
 
 **Who is checked, and what that means.** An account needs an email address, a phone
 number, a username and a password. Both contact details are confirmed with a
@@ -415,6 +443,8 @@ src/
     events.ts          In-process fan-out for SSE
     ratelimit.ts       Fixed-window limiter
     seed.ts            The six channels a new instance opens with
+    verify.ts          One-time codes, hashed and expiring
+    senders/           Email and SMS adapters, and the env factory
 public/
   index.html           Commons shell
   commons.js           Commons client — no framework, no build step

@@ -5,6 +5,7 @@ import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import { aggregate } from './aggregate.ts';
 import { communityRoutes } from './community/routes.ts';
+import { sendersFromEnv } from './community/senders/index.ts';
 import { gatherListings, sourcesFromEnv } from './sources/index.ts';
 import type { EstimateResponse } from './types.ts';
 import { RefusalError, identifyItem } from './vision.ts';
@@ -38,11 +39,26 @@ export function buildServer() {
   app.register(fastifyStatic, {
     root: fileURLToPath(new URL('../public', import.meta.url)),
   });
+  // An instance that boots happily and then fails on the first person to sign
+  // up is worse than one that refuses to boot: the failure surfaces at 3am, to
+  // a member, instead of at deploy time, to whoever deployed it.
+  const sender = sendersFromEnv();
+  if (!sender && process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'No way to send one-time codes is configured, so nobody could confirm an ' +
+      'email address or a phone number. Set EMAIL_PROVIDER and/or SMS_PROVIDER ' +
+      '(see .env.example), or run without NODE_ENV=production to log codes to the console.',
+    );
+  }
+
   app.register(
     communityRoutes({
       dataPath: communityDataPath(),
       signupsPerHourPerIp: signupsPerHour(),
       moderators: (process.env.COMMUNITY_MODERATORS ?? '').split(',').map((h) => h.trim()).filter(Boolean),
+      // Real providers when configured; otherwise the console sender, which
+      // logs codes in development and refuses to start in production.
+      sender: sender ?? undefined,
     }),
     { prefix: '/api/community' },
   );
