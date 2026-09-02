@@ -46,29 +46,39 @@ await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.evaluate(() => navigator.serviceWorker?.ready).catch(() => {});
 await page.waitForTimeout(600);
 
-await step('home shows six categories under two headings', async () => {
+await step('home is a directory: trade rooms, groups, and somewhere to talk', async () => {
   await page.waitForSelector('.cat');
-  const cards = await page.$$('.cat');
-  if (cards.length !== 6) throw new Error(`expected 6 category cards, found ${cards.length}`);
-  const headings = await page.$$eval('main h2', (n) => n.map((x) => x.textContent));
-  if (!headings.includes('Ask for help') || !headings.includes('Meet people')) {
-    throw new Error(`headings=${JSON.stringify(headings)}`);
+  const headings = await page.$$eval('main h2', (n) => n.map((x) => x.textContent.trim()));
+  for (const h of ['Professionals', 'Groups', 'Just talk']) {
+    if (!headings.includes(h)) throw new Error(`no "${h}" section: ${JSON.stringify(headings)}`);
   }
-  // The standard caps a category name at 3 words; check the rendered names.
-  const names = await page.$$eval('.cat .nm', (n) => n.map((x) => x.textContent));
-  const tooLong = names.filter((n) => n.replace(/&/g, '').split(/\s+/).filter(Boolean).length > 3);
-  if (tooLong.length) throw new Error(`category names over 3 words: ${tooLong.join(', ')}`);
+  const names = await page.$$eval('.cat .nm', (n) => n.map((x) => x.textContent.trim()));
+  for (const trade of ['Electricians', 'Plumbers', 'Roofers']) {
+    if (!names.includes(trade)) throw new Error(`no ${trade} room on the home page`);
+  }
+  if (!names.includes('Start a group')) throw new Error('no way to start a group from the home page');
+  // Every hint still inside the eight-word budget, however many rooms there are.
+  const hints = await page.$$eval('.cat .hn', (n) => n.map((x) => x.textContent.trim()));
+  const wordy = hints.filter((h) => h.split(/\s+/).filter(Boolean).length > 8);
+  if (wordy.length) throw new Error(`room hints over 8 words: ${wordy.join(' | ')}`);
+  // Trade rooms say how many checked professionals they have.
+  const counts = await page.$$eval('.cat.help .ct', (n) => n.map((x) => x.textContent));
+  if (!counts.length || !counts.every((c) => /checked professional/.test(c))) {
+    throw new Error(`trade rooms do not show a professional count: ${JSON.stringify(counts.slice(0, 3))}`);
+  }
 });
 
 await step('home page renders and asks the visitor a question', async () => {
   await page.waitForSelector('main h1');
   const h1 = await page.textContent('main h1');
-  if (!h1.includes('What do you need')) throw new Error(`h1 is "${h1}"`);
+  if (!h1.includes('Who do you want to talk to')) throw new Error(`h1 is "${h1}"`);
   await assertNoPlaceholders('the home page');
-  // "No pages of writing" means two things, both checkable: no explanatory
-  // prose outside the cards, and every category hint inside its word budget.
+  // "No pages of writing": at most one short orientation line under each
+  // section heading, never a paragraph, and every room hint inside its budget.
   const prose = await page.$$eval('main > p, main > div:not(.cats) > p', (n) => n.map((x) => x.textContent.trim()).filter(Boolean));
-  if (prose.length) throw new Error(`home page has prose outside the cards: ${JSON.stringify(prose)}`);
+  const long = prose.filter((line) => line.split(/\s+/).filter(Boolean).length > 12);
+  if (long.length) throw new Error(`home page has a paragraph where a line was allowed: ${JSON.stringify(long)}`);
+  if (prose.length > 3) throw new Error(`home page has ${prose.length} lines of prose; three sections means at most three`);
   const hints = await page.$$eval('.cat .hn', (n) => n.map((x) => x.textContent.trim()));
   const wordy = hints.filter((h) => h.split(/\s+/).filter(Boolean).length > 8);
   if (wordy.length) throw new Error(`category hints over 8 words: ${wordy.join(' | ')}`);
@@ -125,7 +135,7 @@ await step('a moderator checks them, and the doors open', async () => {
 });
 
 await step('post a question in a help channel', async () => {
-  await page.goto(`${BASE}/#/c/home-repair`);
+  await page.goto(`${BASE}/#/c/plumbers`);
   await page.reload({ waitUntil: 'networkidle' });
   // The ask box is visible on load now — no disclosure to open first.
   await page.fill('#q-title', 'Draught under the back door');
@@ -154,11 +164,11 @@ await step('mark the reply as the answer', async () => {
 await step('profile skills produce a topic badge', async () => {
   await page.click('nav.main a:text("You")');
   await page.waitForSelector('main h1:text("Your page")');
-  await page.fill('#p-help', 'carpentry, draughts');
+  await page.fill('#p-help', 'plumbing, draughts');
   await page.fill('#p-area', 'Riverside');
   await page.click('button:text("Save")');
   await page.waitForSelector('.ok');
-  await page.goto(`${BASE}/#/c/home-repair`);
+  await page.goto(`${BASE}/#/c/plumbers`);
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForSelector('.post');
   await page.click('.post .t:text("Draught under the back door")');
@@ -252,7 +262,7 @@ await step('a review of help given here is accepted and marked verified', async 
   // Set up a real interaction first: a seeded member answers the question this
   // browser user asked. Without that there is nothing verifiable to review,
   // and the server is right to refuse one.
-  const channel = await (await page.request.get(`${BASE}/api/community/channels/home-repair`)).json();
+  const channel = await (await page.request.get(`${BASE}/api/community/channels/plumbers`)).json();
   const draught = channel.threads.find((t) => t.title === 'Draught under the back door');
   if (!draught) throw new Error('the question posted earlier is missing');
 
@@ -315,7 +325,9 @@ await step('the directory ranks by reviews but still shows newcomers', async () 
   }
   // The order the server sent must survive into the page.
   const sent = await (await page.request.get(`${BASE}/api/community/people`)).json();
-  const ranked = sent.people.filter((p) => p.reviews && p.reviews.count > 0).map((p) => p.displayName);
+  // The page lists "Free to talk now" first and keeps those people out of the
+  // ranked section, so the expected order skips them too.
+  const ranked = sent.people.filter((p) => !p.openToChat && p.reviews && p.reviews.count > 0).map((p) => p.displayName);
   const shown = await page.$$eval('main h2:text("Best reviewed") + p + .people .person h3', (n) => n.map((x) => x.textContent.trim()));
   if (shown.length && ranked.length && shown[0] !== ranked[0]) {
     throw new Error(`top of the ranked list is ${shown[0]}, server said ${ranked[0]}`);

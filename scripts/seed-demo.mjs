@@ -129,7 +129,8 @@ const mara = await member('mara', 'Mara Ellis', {
   neighborhood: 'Riverside',
   skills: ['plumbing', 'hvac', 'appliances'],
   openToChat: true,
-  trade: 'Heating engineer, retired',
+  trade: 'Heating engineer',
+  worksInTrade: true,
 });
 const dev = await member('devraj', 'Dev Raj', {
   bio: 'Bad at gardening, learning in public. Two kids, one very old cat.',
@@ -159,6 +160,8 @@ const eli = await member('elik', 'Eli Kowalski', {
   bio: 'Night shifts, so I am awake when nobody else is.',
   neighborhood: 'The Mills',
   skills: ['electrical'],
+  trade: 'Electrician',
+  worksInTrade: true,
 });
 
 // The moderator does the checking, so they go first — seeded by
@@ -172,7 +175,7 @@ for (const person of [mara, dev, joan, tom, priya, eli]) {
 
 // ------------------------------------------ a question that gets answered well
 
-const radiator = (await call('/channels/home-repair/threads', {
+const radiator = (await call('/channels/heating/threads', {
   method: 'POST',
   cookie: dev.cookie,
   body: {
@@ -210,7 +213,7 @@ await call(`/threads/${radiator.id}/accept`, {
 
 // ------------------------------------------------------- the rest of the help
 
-await call('/channels/home-repair/threads', {
+await call('/channels/plumbers/threads', {
   method: 'POST',
   cookie: joan.cookie,
   body: {
@@ -225,7 +228,7 @@ await call('/channels/home-repair/threads', {
     },
   },
 });
-await call('/channels/home-repair/threads', {
+await call('/channels/plumbers/threads', {
   method: 'POST', cookie: tom.cookie,
   body: {
     title: 'Tile saw, SDS drill and a decent extension ladder, all free to borrow',
@@ -233,7 +236,7 @@ await call('/channels/home-repair/threads', {
     tags: ['lending'],
   },
 });
-await call('/channels/garden-yard/threads', {
+await call('/channels/landscapers/threads', {
   method: 'POST', cookie: priya.cookie,
   body: {
     title: 'Something is stripping my tomato plants overnight',
@@ -241,7 +244,7 @@ await call('/channels/garden-yard/threads', {
     tags: ['pests', 'tomatoes'],
   },
 });
-await call('/channels/tech-help/threads', {
+await call('/channels/tech/threads', {
   method: 'POST', cookie: joan.cookie,
   body: {
     title: 'The wifi drops every evening around seven and comes back by ten',
@@ -299,14 +302,14 @@ await call('/channels/chat/threads', {
     body: 'Say one thing about your day, however small. I will start: the good chair got moved into the sun and I have not moved since.',
   },
 });
-await call('/channels/clubs/threads', {
+await call('/channels/book-club/threads', {
   method: 'POST', cookie: joan.cookie,
   body: {
     title: 'Cooking lot: made too much soup again',
     body: 'Leek and potato, four portions spare, Riverside. First to say so can have them. We swap what we have cooked most weeks, so say hello if you want in.',
   },
 });
-await call('/channels/clubs/threads', {
+await call('/channels/book-club/threads', {
   method: 'POST', cookie: dev.cookie,
   body: {
     title: 'Book club this month: anything you did not finish',

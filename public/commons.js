@@ -243,6 +243,7 @@ function renderNav() {
     ['#/people', 'People'],
   ];
   if (state.me) {
+    items.push(['#/start', 'Start a group']);
     items.push(['#/hellos', 'Hellos', state.unreadHellos]);
     if (state.me.role === 'moderator') items.push(['#/mod', 'Reports', state.queueSize]);
     items.push(['#/you', 'You']);
@@ -279,21 +280,45 @@ function signInFirst(what) {
   return true;
 }
 
-/** Home: the six categories, split into the two things people come here for. */
+/**
+ * Home: who do you want to talk to?
+ *
+ * Three kinds of room. Trade rooms, where checked professionals answer;
+ * groups, which members start themselves; and somewhere to just talk. The
+ * page is a directory, not an explanation — one line each and a count.
+ */
 function viewHome() {
-  const card = (c) => el('button', { class: `cat ${c.kind}`, onclick: () => go(`#/c/${c.slug}`) },
-    el('span', { class: 'nm', text: c.name }),
-    el('span', { class: 'hn', text: c.description }),
-    el('span', { class: 'ct', text: c.threadCount === 1 ? '1 post' : `${c.threadCount} posts` }),
+  const card = (c) => {
+    const trade = isHelp(c.kind);
+    const count = trade
+      ? (c.professionals === 1 ? '1 checked professional' : `${c.professionals} checked professionals`)
+      : (c.threadCount === 1 ? '1 post' : `${c.threadCount} posts`);
+    return el('button', { class: `cat ${c.kind}`, onclick: () => go(`#/c/${c.slug}`) },
+      el('span', { class: 'nm', text: c.name }),
+      el('span', { class: 'hn', text: c.description }),
+      el('span', { class: 'ct', text: count + (c.startedBy ? ` · started by ${c.startedBy.displayName}` : '') }),
+    );
+  };
+  const trades = state.categories.filter((c) => c.kind === 'help');
+  const groups = state.categories.filter((c) => c.kind === 'group');
+  const social = state.categories.filter((c) => c.kind === 'social');
+
+  const startCard = el('button', { class: 'cat start', onclick: () => go('#/start') },
+    el('span', { class: 'nm', text: 'Start a group' }),
+    el('span', { class: 'hn', text: 'A book club, a bike club, walking partners.' }),
+    el('span', { class: 'ct', text: 'Yours to run' }),
   );
-  const ask = state.categories.filter((c) => isHelp(c.kind));
-  const meet = state.categories.filter((c) => !isHelp(c.kind));
+
   show(
-    el('h1', { text: 'What do you need?' }),
-    el('h2', { text: 'Ask for help', style: 'margin-top:8px' }),
-    el('div', { class: 'cats' }, ...ask.map(card)),
-    el('h2', { text: 'Meet people' }),
-    el('div', { class: 'cats' }, ...meet.map(card)),
+    el('h1', { text: 'Who do you want to talk to?' }),
+    el('h2', { text: 'Professionals', style: 'margin-top:8px' }),
+    el('p', { class: 'hint', style: 'margin:-6px 0 12px', text: 'One room per trade. Anyone can ask; checked professionals answer.' }),
+    el('div', { class: 'cats' }, ...trades.map(card)),
+    el('h2', { text: 'Groups' }),
+    el('p', { class: 'hint', style: 'margin:-6px 0 12px', text: 'Started by members. Join one, or start your own.' }),
+    el('div', { class: 'cats' }, ...groups.map(card), startCard),
+    el('h2', { text: 'Just talk' }),
+    el('div', { class: 'cats' }, ...social.map(card)),
   );
 }
 
@@ -303,11 +328,31 @@ async function viewCategory(slug) {
   return showChat(channel, threads);
 }
 
-/** A help category reads as questions with answers. */
+/** A trade room reads as questions with answers, with its professionals up top. */
 function showQuestions(category, posts) {
+  const pros = el('div', { class: 'card tight' }, el('p', { class: 'hint', style: 'margin:0', text: 'Finding the professionals in this room…' }));
+  api(`/channels/${encodeURIComponent(category.slug)}/professionals`)
+    .then(({ professionals }) => {
+      if (!professionals.length) {
+        replaceKids(pros,
+          el('p', { style: 'margin:0 0 4px; font-weight:600', text: 'No checked professionals here yet' }),
+          el('p', { class: 'hint', style: 'margin:0', text: 'Do this for a living? Add your trade on your page and ask to be checked.' }));
+        return;
+      }
+      replaceKids(pros,
+        el('p', { style: 'margin:0 0 8px; font-weight:600',
+          text: professionals.length === 1 ? '1 checked professional in this room' : `${professionals.length} checked professionals in this room` }),
+        el('div', { class: 'row', style: 'gap:8px' }, ...professionals.map((p) =>
+          el('a', { class: 'pro', href: `#/u/${encodeURIComponent(p.handle)}` },
+            el('span', { class: 'nm', text: p.displayName }),
+            el('span', { class: 'hint', text: p.trade + (p.reviews && p.reviews.average !== null ? ` · ${p.reviews.average} out of 5` : '') })))));
+    })
+    .catch(() => replaceKids(pros, el('p', { class: 'hint', style: 'margin:0', text: 'Could not load the professionals just now.' })));
+
   show(
     el('h1', { text: category.name }),
     el('p', { class: 'hint', text: category.description }),
+    pros,
     askForm(category),
     el('h2', { text: posts.length === 1 ? '1 question' : `${posts.length} questions` }),
     posts.length
@@ -401,7 +446,7 @@ function askForm(category) {
   });
 
   return el('div', { class: 'card' },
-    el('h2', { style: 'margin:0 0 14px', text: 'Ask a question' }),
+    el('h2', { style: 'margin:0 0 14px', text: 'Ask the room' }),
     el('label', { class: 'field' },
       el('span', { class: 'lab', text: 'Your question' }),
       title),
@@ -508,6 +553,57 @@ function writer(category) {
     el('label', { class: 'field', style: 'margin-bottom:10px' },
       el('span', { class: 'lab', text: 'Write a message' }), field),
     send);
+}
+
+/**
+ * Starting a group.
+ *
+ * Two fields and a choice. A member can start a group or a chat; trade rooms
+ * are set up by moderators, because a room called "Plumbers" is a claim about
+ * who answers in it.
+ */
+function viewStart() {
+  if (signInFirst('start a group')) return;
+  const name = el('input', { type: 'text', id: 's-name', maxlength: 60 });
+  const about = el('input', { type: 'text', id: 's-about', maxlength: 280 });
+  const kind = el('select', { id: 's-kind' },
+    el('option', { value: 'group', text: 'A club or group — something that keeps going' }),
+    el('option', { value: 'social', text: 'Just a chat — a place to talk' }));
+  const note = el('p', { style: 'margin:0' });
+  const create = el('button', { class: 'primary', text: 'Start it' });
+
+  create.addEventListener('click', async () => {
+    if (!name.value.trim() || !about.value.trim()) {
+      note.replaceChildren(el('span', { class: 'err', text: 'Give it a name and say what it is for.' }));
+      return;
+    }
+    create.disabled = true;
+    try {
+      const { channel } = await api('/channels', {
+        method: 'POST',
+        body: { name: name.value.trim(), kind: kind.value, description: about.value.trim() },
+      });
+      await loadCategories();
+      say('Started. It is yours to run.');
+      go(`#/c/${channel.slug}`);
+    } catch (error) {
+      note.replaceChildren(el('span', { class: 'err', text: error.message }));
+    } finally { create.disabled = false; }
+  });
+
+  show(
+    el('h1', { text: 'Start a group' }),
+    el('p', { class: 'hint', text: 'A Sunday book club. A bike club. Three people who want to walk on Tuesdays. Three a day, so the list stays readable.' }),
+    el('div', { class: 'card' },
+      el('label', { class: 'field' }, el('span', { class: 'lab', text: 'Name' }), name),
+      el('label', { class: 'field' },
+        el('span', { class: 'lab', text: 'What it is for' }),
+        el('span', { class: 'help', text: 'One line. Ten words or fewer reads best.' }), about),
+      el('label', { class: 'field' }, el('span', { class: 'lab', text: 'What kind of room' }), kind),
+      el('div', { class: 'row' }, create, el('button', { class: 'quiet', text: 'Cancel', onclick: () => go('#/') })),
+      note,
+    ),
+  );
 }
 
 /** Plan a get-together — its own page, so the chat box stays a chat box. */
@@ -1603,6 +1699,7 @@ async function renderRoute() {
     if (hash.startsWith('#/p/')) return await viewPost(decodeURIComponent(hash.slice(4)));
     if (hash.startsWith('#/u/')) return await viewPerson(decodeURIComponent(hash.slice(4)));
     if (hash.startsWith('#/plan/')) return viewPlan(decodeURIComponent(hash.slice(7)));
+    if (hash === '#/start') return viewStart();
     if (hash.startsWith('#/find/')) return await viewSearch(decodeURIComponent(hash.slice(7)));
     if (hash === '#/meet') return await viewMeetups();
     if (hash.startsWith('#/people/')) return await viewPeople(decodeURIComponent(hash.slice(9)));

@@ -25,7 +25,7 @@ import {
   validatePhone,
 } from './verify.ts';
 import { CommunityStore, publicUser } from './store.ts';
-import type { MeetupMessage, ModerationCase, ReportTarget, Reply, Review, Thread, User } from './types.ts';
+import type { Channel, MeetupMessage, ModerationCase, ReportTarget, Reply, Review, Thread, User } from './types.ts';
 import { replyView, reviewView, summarise, threadView } from './views.ts';
 
 /** Reports from this many distinct members hide content pending review. */
@@ -182,6 +182,26 @@ export function communityRoutes(options: CommunityOptions = {}) {
       if (!limiter.allow(`${user.id}:${action}`, max, windowMs)) {
         throw new HttpError(429, 'You are doing that too quickly. Give it a minute.');
       }
+    }
+
+    /**
+     * Whether a member counts as a professional in a given room.
+     *
+     * Identity checked, says they do it for a living, and their trade fits one
+     * of the room's topics in either direction — "Gas engineer" fits a room
+     * tagged "gas", and "painter" fits "Painter & Decorator".
+     */
+    function professionalIn(user: User, channel: Channel): boolean {
+      if (!user.identity || !user.worksInTrade || !user.trade) return false;
+      const trade = user.trade.toLowerCase();
+      return channel.topics.some((topic) => {
+        const t = topic.toLowerCase();
+        return trade.includes(t) || t.includes(trade);
+      });
+    }
+
+    function professionalsIn(channel: Channel): User[] {
+      return [...store.users.values()].filter((u) => professionalIn(u, channel));
     }
 
     function channelOr404(slug: string) {
@@ -537,6 +557,10 @@ export function communityRoutes(options: CommunityOptions = {}) {
             lastActiveAt: threads[0]?.updatedAt ?? channel.createdAt,
             /** Surfaces "you know about this" without ranking people. */
             matchesYourSkills: channel.topics.some((t) => claimed.has(t.toLowerCase())),
+            /** Checked members who do this trade for a living. Trade rooms only. */
+            professionals: channel.kind === 'help' ? professionalsIn(channel).length : 0,
+            /** Seeded rooms have no creator; a member-started one names theirs. */
+            startedBy: channel.createdBy ? publicUser(store.users.get(channel.createdBy)!) : null,
           };
         });
       return { channels };
@@ -553,6 +577,11 @@ export function communityRoutes(options: CommunityOptions = {}) {
           topics: tagsField,
         })
         .parse(request.body);
+      // Anybody can start a book club. A "Plumbers" room is a claim about who
+      // answers in it, so those are set up by moderators.
+      if (input.kind === 'help' && user.role !== 'moderator') {
+        throw new HttpError(403, 'Trade rooms are set up by moderators. You can start a group or a chat.');
+      }
 
       const slug = input.name
         .toLowerCase()
@@ -582,6 +611,19 @@ export function communityRoutes(options: CommunityOptions = {}) {
         .slice(0, MAX_PAGE)
         .map((t) => threadView(store, t, me?.id ?? null));
       return { channel, threads };
+    });
+
+    /** The checked professionals in one trade room, best reviewed first. */
+    app.get('/channels/:slug/professionals', async (request) => {
+      const { slug } = z.object({ slug: z.string() }).parse(request.params);
+      const channel = channelOr404(slug);
+      const professionals = professionalsIn(channel)
+        .map((u) => ({ ...publicUser(u), reviews: summarise(store.reviewsOf(u.id)) }))
+        .sort((a, b) => {
+          const byScore = (b.reviews.score ?? -1) - (a.reviews.score ?? -1);
+          return byScore !== 0 ? byScore : a.displayName.localeCompare(b.displayName);
+        });
+      return { channel: { slug: channel.slug, name: channel.name }, professionals };
     });
 
     // ------------------------------------------------------------- threads

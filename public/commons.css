@@ -176,6 +176,12 @@ label.toggle input { width: 26px; height: 26px; min-height: 0; flex: none; accen
 .cat .hn { font-size: 17px; color: var(--muted); font-weight: 400; display: block; }
 .cat .ct { font-size: 16px; color: var(--muted); font-weight: 400; display: block; margin-top: 8px; }
 
+.cat.start { border-left-color: var(--primary); border-style: dashed; background: var(--surface-2); }
+.pro { display: inline-flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-radius: 10px;
+       border: 1px solid var(--border); background: var(--surface); text-decoration: none; color: var(--ink); min-height: var(--tap); justify-content: center; }
+.pro:hover { border-color: var(--primary); }
+.pro .nm { font-weight: 600; }
+
 /* ------------------------------------------------------------------- posts */
 .post {
   display: block; text-align: left; width: 100%;

@@ -114,14 +114,17 @@ Installing Commons as an app on a phone or a computer is covered in
 A place for three things that turn out to need the same substrate and different
 surfaces:
 
-| Channel kind | What it is for | Seeded channels |
-|---|---|---|
-| `help` | Somebody has a problem and wants an answer from someone who has done it | Home & Repairs, Garden & Yard, Tech Help |
-| `group` | A standing public group around a shared interest | Clubs & Hobbies |
-| `social` | Getting people who are alone into the same room | Chat & Check In, Meetups |
+| Room kind | What it is for | Who can start one | Seeded rooms |
+|---|---|---|---|
+| `help` | One room per trade. Anyone asks; identity-checked professionals answer, and are listed at the top. | Moderators only | Electricians, Plumbers, Heating & Gas, Builders & Renovation, Landscapers & Gardeners, Roofers, Painters & Decorators, Tech & Wifi |
+| `group` | A club or a standing group. The seeded ones are examples; the point is members starting their own. | Any member | Sunday Book Club, Bike Club, Walking & Exercise, Cooking |
+| `social` | Plain company. | Any member | Chat & Check In, Meetups |
 
-Members can also create channels of any kind (three a day, so the list stays
-navigable).
+Members start groups and chats (three a day, so the list stays readable). A room
+called *Plumbers* is a claim about who answers in it, so trade rooms are set up by
+moderators. A member who does a trade for a living, and has been identity-checked, is
+listed at the top of the matching room automatically — "Gas engineer" lands in Heating
+& Gas, "Painter" in Painters & Decorators.
 
 ### What it does
 
@@ -165,7 +168,9 @@ POST   /identity/request           {note} — ask to be identity-checked
 GET    /identity/queue             moderator: who is waiting
 POST   /identity/:handle/decide    moderator: {outcome, method?, reference?, reason?}
 GET    /me                         PATCH /me            profile + presence
-GET    /channels                   POST  /channels
+GET    /channels                   each with professionals (trade rooms) and startedBy
+POST   /channels                   {name, kind, description, topics?} — help kind is moderator-only
+GET    /channels/:slug/professionals   checked members whose trade fits the room, best reviewed first
 GET    /channels/:slug             channel + recent threads
 POST   /channels/:slug/threads     ask, post, or schedule a meetup
 GET    /threads/:id                thread + replies + RSVPs

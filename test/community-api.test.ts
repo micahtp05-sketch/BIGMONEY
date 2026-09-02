@@ -141,7 +141,7 @@ describe('Commons API', () => {
 
   it('refuses to post without a session', async () => {
     const res = await app.inject({
-      method: 'POST', url: '/api/community/channels/home-repair/threads',
+      method: 'POST', url: '/api/community/channels/plumbers/threads',
       payload: { title: 'Anonymous', body: 'Should not land.' },
     });
     assert.equal(res.statusCode, 401);
@@ -159,7 +159,7 @@ describe('Commons API', () => {
     });
 
     const asked = await app.inject({
-      method: 'POST', url: '/api/community/channels/home-repair/threads',
+      method: 'POST', url: '/api/community/channels/plumbers/threads',
       headers: asUser(asker.cookie),
       payload: { title: 'Radiator cold at the top', body: 'Warm at the bottom only.', tags: ['heating'] },
     });
@@ -199,7 +199,7 @@ describe('Commons API', () => {
     const bystander = await signUp(app, 'bystander');
 
     const thread = (await app.inject({
-      method: 'POST', url: '/api/community/channels/tech-help/threads',
+      method: 'POST', url: '/api/community/channels/tech/threads',
       headers: asUser(asker.cookie), payload: { title: 'Wifi drops', body: 'Every evening.' },
     })).json().thread;
     const replyId = (await app.inject({
@@ -230,7 +230,7 @@ describe('Commons API', () => {
     await verifyIdentity(app, author);
     const reader = await signUp(app, 'reader');
     const thread = (await app.inject({
-      method: 'POST', url: '/api/community/channels/garden-yard/threads',
+      method: 'POST', url: '/api/community/channels/landscapers/threads',
       headers: asUser(author.cookie), payload: { title: 'Aphids', body: 'Everywhere.' },
     })).json().thread;
     const replyId = (await app.inject({
@@ -290,7 +290,7 @@ describe('Commons API', () => {
     const user = await signUp(app, 'planner');
     await verifyIdentity(app, user);
     const wrongChannel = await app.inject({
-      method: 'POST', url: '/api/community/channels/home-repair/threads', headers: asUser(user.cookie),
+      method: 'POST', url: '/api/community/channels/plumbers/threads', headers: asUser(user.cookie),
       payload: {
         title: 'Boiler party', body: 'no',
         meetup: { startsAt: Date.now() + 86_400_000, capacity: 0 },
@@ -358,7 +358,7 @@ describe('Commons API', () => {
     const author = await signUp(app, 'owner');
     const stranger = await signUp(app, 'stranger');
     const thread = (await app.inject({
-      method: 'POST', url: '/api/community/channels/clubs/threads',
+      method: 'POST', url: '/api/community/channels/book-club/threads',
       headers: asUser(author.cookie), payload: { title: 'This month', body: 'Pick one.' },
     })).json().thread;
 
@@ -417,11 +417,11 @@ describe('Commons API', () => {
   it('searches titles ahead of bodies', async () => {
     const user = await signUp(app, 'searcher');
     await app.inject({
-      method: 'POST', url: '/api/community/channels/clubs/threads', headers: asUser(user.cookie),
+      method: 'POST', url: '/api/community/channels/book-club/threads', headers: asUser(user.cookie),
       payload: { title: 'Mending a wicker chair', body: 'Unrelated words here.' },
     });
     await app.inject({
-      method: 'POST', url: '/api/community/channels/clubs/threads', headers: asUser(user.cookie),
+      method: 'POST', url: '/api/community/channels/book-club/threads', headers: asUser(user.cookie),
       payload: { title: 'Unrelated title', body: 'I once mended a wicker seat.' },
     });
     const res = await app.inject({ method: 'GET', url: '/api/community/search?q=wicker' });
@@ -455,14 +455,14 @@ describe('Commons API', () => {
     const user = await signUp(app, 'founder');
     const res = await app.inject({
       method: 'POST', url: '/api/community/channels', headers: asUser(user.cookie),
-      payload: { name: 'Bike Repair Corner!', kind: 'help', description: 'Punctures and gears.', topics: ['bikes'] },
+      payload: { name: 'Bike Repair Corner!', kind: 'group', description: 'Punctures and gears.', topics: ['bikes'] },
     });
     assert.equal(res.statusCode, 200, res.body);
     assert.equal(res.json().channel.slug, 'bike-repair-corner');
 
     const dupe = await app.inject({
       method: 'POST', url: '/api/community/channels', headers: asUser(user.cookie),
-      payload: { name: 'bike repair corner', kind: 'help', description: 'Again.' },
+      payload: { name: 'bike repair corner', kind: 'group', description: 'Again.' },
     });
     assert.equal(dupe.statusCode, 409);
   });
@@ -473,7 +473,7 @@ describe('Commons API', () => {
       method: 'PATCH', url: '/api/community/me', headers: asUser(user.cookie), payload: { skills: ['gardening'] },
     });
     const res = await app.inject({ method: 'GET', url: '/api/community/channels', headers: asUser(user.cookie) });
-    const garden = res.json().channels.find((c: { slug: string }) => c.slug === 'garden-yard');
+    const garden = res.json().channels.find((c: { slug: string }) => c.slug === 'landscapers');
     const porch = res.json().channels.find((c: { slug: string }) => c.slug === 'chat');
     assert.equal(garden.matchesYourSkills, true);
     assert.equal(porch.matchesYourSkills, false);
@@ -701,7 +701,7 @@ describe('reviews', () => {
     const helper = await signUp(app, `rhelper${suffix}`);
     await verifyIdentity(app, helper);
     const thread = (await app.inject({
-      method: 'POST', url: '/api/community/channels/home-repair/threads', headers: asUser(asker.cookie),
+      method: 'POST', url: '/api/community/channels/plumbers/threads', headers: asUser(asker.cookie),
       payload: { title: 'Dripping tap', body: 'It drips all night.' },
     })).json().thread;
     await app.inject({
@@ -727,7 +727,7 @@ describe('reviews', () => {
     await askedAndAnswered('b');
     const stranger = await signUp(app, 'rstrangerb');
     const other = (await app.inject({
-      method: 'POST', url: '/api/community/channels/tech-help/threads', headers: asUser(stranger.cookie),
+      method: 'POST', url: '/api/community/channels/tech/threads', headers: asUser(stranger.cookie),
       payload: { title: 'Printer', body: 'It will not print.' },
     })).json().thread;
 
@@ -952,7 +952,7 @@ describe('ranking providers by their reviews', () => {
     const claimed = await signUp(app, 'rankclaimed');
 
     const thread = (await app.inject({
-      method: 'POST', url: '/api/community/channels/tech-help/threads', headers: asUser(asker.cookie),
+      method: 'POST', url: '/api/community/channels/tech/threads', headers: asUser(asker.cookie),
       payload: { title: 'Wifi drops', body: 'Every evening.' },
     })).json().thread;
     await app.inject({
@@ -1375,7 +1375,7 @@ describe('accounts, contact details and identity', () => {
     const asker = await signUp(app, 'gasker');
     const unchecked = await signUp(app, 'gunchecked');
     const thread = (await app.inject({
-      method: 'POST', url: '/api/community/channels/home-repair/threads', headers: asUser(asker.cookie),
+      method: 'POST', url: '/api/community/channels/plumbers/threads', headers: asUser(asker.cookie),
       payload: { title: 'Dripping tap', body: 'All night.' },
     })).json().thread;
 
@@ -1402,7 +1402,7 @@ describe('accounts, contact details and identity', () => {
   it('lets an unchecked account ask, chat and come along', async () => {
     const person = await signUp(app, 'gasking');
     const asked = await app.inject({
-      method: 'POST', url: '/api/community/channels/tech-help/threads', headers: asUser(person.cookie),
+      method: 'POST', url: '/api/community/channels/tech/threads', headers: asUser(person.cookie),
       payload: { title: 'Printer will not print', body: 'It blinks orange.' },
     });
     assert.equal(asked.statusCode, 201, 'asking for help must never need an ID');
@@ -1418,7 +1418,7 @@ describe('accounts, contact details and identity', () => {
     const asker = await signUp(app, 'gasker2');
     const helper = await signUp(app, 'gchecked');
     const thread = (await app.inject({
-      method: 'POST', url: '/api/community/channels/home-repair/threads', headers: asUser(asker.cookie),
+      method: 'POST', url: '/api/community/channels/plumbers/threads', headers: asUser(asker.cookie),
       payload: { title: 'Cold radiator', body: 'Top is cold.' },
     })).json().thread;
 
@@ -1451,6 +1451,88 @@ describe('accounts, contact details and identity', () => {
     });
     const denied = await app.inject({ method: 'GET', url: '/api/community/identity/queue', headers: asUser(person.cookie) });
     assert.equal(denied.statusCode, 403);
+  });
+});
+
+describe('rooms: trade rooms are curated, groups are anyone\'s', () => {
+  let app: FastifyInstance;
+
+  before(async () => { app = await buildApp(); });
+  after(async () => { await app.close(); });
+
+  it('opens with trade rooms, example groups, and somewhere to chat', async () => {
+    const { channels } = (await app.inject({ method: 'GET', url: '/api/community/channels' })).json();
+    const slugs = channels.map((c: { slug: string }) => c.slug);
+    for (const trade of ['electricians', 'plumbers', 'heating', 'builders', 'landscapers', 'roofers', 'decorators', 'tech']) {
+      assert.ok(slugs.includes(trade), `no ${trade} room`);
+    }
+    assert.ok(slugs.includes('book-club') && slugs.includes('cycling') && slugs.includes('walking'));
+    assert.ok(slugs.includes('chat') && slugs.includes('meetups'));
+    const plumbers = channels.find((c: { slug: string }) => c.slug === 'plumbers');
+    assert.equal(plumbers.kind, 'help');
+    assert.equal(plumbers.startedBy, null, 'seeded rooms have no creator');
+  });
+
+  it('lets a member start a group or a chat, but not a trade room', async () => {
+    const member = await signUp(app, 'roomstarter');
+    const club = await app.inject({
+      method: 'POST', url: '/api/community/channels', headers: asUser(member.cookie),
+      payload: { name: 'Tuesday Walkers', kind: 'group', description: 'Slow laps of the park.' },
+    });
+    assert.equal(club.statusCode, 200, club.body);
+    assert.equal(club.json().channel.slug, 'tuesday-walkers');
+
+    const trade = await app.inject({
+      method: 'POST', url: '/api/community/channels', headers: asUser(member.cookie),
+      payload: { name: 'Sparkies', kind: 'help', description: 'Electricians.' },
+    });
+    assert.equal(trade.statusCode, 403, 'a member must not be able to declare a trade room');
+
+    const listed = (await app.inject({ method: 'GET', url: '/api/community/channels' })).json().channels
+      .find((c: { slug: string }) => c.slug === 'tuesday-walkers');
+    assert.equal(listed.startedBy.handle, 'roomstarter', 'a member-started room names who started it');
+  });
+
+  it('counts and lists the checked professionals in a trade room', async () => {
+    const sparky = await signUp(app, 'sparky');
+    const before = (await app.inject({ method: 'GET', url: '/api/community/channels/electricians/professionals' })).json();
+    assert.equal(before.professionals.length, 0);
+
+    // Claims a trade but is not checked yet: does not count.
+    await verifyIdentity(app, sparky);
+    await app.inject({
+      method: 'PATCH', url: '/api/community/me', headers: asUser(sparky.cookie),
+      payload: { trade: 'Electrician', worksInTrade: true },
+    });
+    const after = (await app.inject({ method: 'GET', url: '/api/community/channels/electricians/professionals' })).json();
+    assert.deepEqual(after.professionals.map((p: { handle: string }) => p.handle), ['sparky']);
+    assert.equal(after.professionals[0].identityVerified, true);
+
+    const rooms = (await app.inject({ method: 'GET', url: '/api/community/channels' })).json().channels;
+    assert.equal(rooms.find((c: { slug: string }) => c.slug === 'electricians').professionals, 1);
+    assert.equal(rooms.find((c: { slug: string }) => c.slug === 'plumbers').professionals, 0, 'an electrician is not a plumber');
+  });
+
+  it('matches a trade to a room in either direction', async () => {
+    const gas = await signUp(app, 'gasperson');
+    await verifyIdentity(app, gas);
+    await app.inject({
+      method: 'PATCH', url: '/api/community/me', headers: asUser(gas.cookie),
+      payload: { trade: 'Gas engineer', worksInTrade: true },
+    });
+    const heating = (await app.inject({ method: 'GET', url: '/api/community/channels/heating/professionals' })).json();
+    assert.ok(heating.professionals.some((p: { handle: string }) => p.handle === 'gasperson'), '"Gas engineer" belongs in Heating & Gas');
+  });
+
+  it('does not count somebody who only says they can help', async () => {
+    const hobbyist = await signUp(app, 'hobbyist');
+    await verifyIdentity(app, hobbyist);
+    await app.inject({
+      method: 'PATCH', url: '/api/community/me', headers: asUser(hobbyist.cookie),
+      payload: { skills: ['plumbing'], trade: '', worksInTrade: false },
+    });
+    const plumbers = (await app.inject({ method: 'GET', url: '/api/community/channels/plumbers/professionals' })).json();
+    assert.equal(plumbers.professionals.some((p: { handle: string }) => p.handle === 'hobbyist'), false);
   });
 });
 
