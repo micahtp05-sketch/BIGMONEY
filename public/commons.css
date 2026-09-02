@@ -1,10 +1,21 @@
+/* FONTS — shared with /welcome/, so the site and the app are one thing. */
+@font-face { font-family: "Instrument Serif"; font-style: normal; font-weight: 400; font-display: swap; src: url(/fonts/instrument-serif.woff2) format("woff2"); }
+@font-face { font-family: "Instrument Serif"; font-style: italic; font-weight: 400; font-display: swap; src: url(/fonts/instrument-serif-italic.woff2) format("woff2"); }
+@font-face { font-family: "Public Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url(/fonts/public-sans-400.woff2) format("woff2"); }
+@font-face { font-family: "Public Sans"; font-style: normal; font-weight: 600; font-display: swap; src: url(/fonts/public-sans-600.woff2) format("woff2"); }
+@font-face { font-family: "Public Sans"; font-style: normal; font-weight: 700; font-display: swap; src: url(/fonts/public-sans-700.woff2) format("woff2"); }
+
 /* Commons — built to docs/simple-ui.md.
    Light by default: higher contrast is easier on older eyes and matches what
    most people expect. Dark follows the device setting. */
 :root {
-  --bg: #F5F5F2;
+  --night: #080D16;
+  --night-2: #0E1626;
+  --bg: #FAFAF8;
   --surface: #FFFFFF;
-  --surface-2: #EFEFEC;
+  --surface-2: #F1F2EE;
+  --display: "Instrument Serif", "Iowan Old Style", Palatino, Georgia, serif;
+  --body: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --ink: #15171A;          /* 16.9:1 on --surface */
   --muted: #53575D;        /* 7.4:1 on --surface */
   --border: #D3D4D0;
@@ -61,7 +72,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 18px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font: 18px/1.55 var(--body);
   min-height: 100vh;
 }
 :focus-visible {
@@ -73,26 +84,37 @@ a { color: var(--primary); text-underline-offset: 3px; }
 
 /* ------------------------------------------------------------------ header */
 header.top {
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  background: var(--night);
+  color: #F2F5F9;
+  border-bottom: 1px solid rgba(255,255,255,.12);
   position: sticky; top: 0; z-index: 20;
 }
 .top-in {
-  max-width: 60rem; margin: 0 auto; padding: 10px 16px;
+  max-width: 76rem; margin: 0 auto; padding: 10px 16px;
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
 }
 .brand {
-  font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
-  color: var(--ink); text-decoration: none; margin-right: auto;
+  font-family: var(--display); font-size: 28px; font-weight: 400; letter-spacing: -0.01em;
+  color: #F2F5F9; text-decoration: none; margin-right: auto;
   min-height: var(--tap); display: flex; align-items: center;
 }
 .top form { display: flex; gap: 8px; }
-.top input[type=search] { width: 190px; }
+.top input[type=search] { width: 190px; background: rgba(255,255,255,.08); color: #F2F5F9; border-color: rgba(255,255,255,.28); }
+.top input[type=search]::placeholder { color: #A9B8CC; }
+.top input[type=search]:focus { border-color: #F2F5F9; }
+.top form button, .top #account button {
+  background: transparent; color: #F2F5F9; border-color: rgba(255,255,255,.32);
+}
+.top form button:hover, .top #account button:hover:not(:disabled) { border-color: #F2F5F9; }
+.top #account button.primary { background: #F2F5F9; color: var(--night); border-color: #F2F5F9; }
+.top #account button.quiet { border-color: transparent; color: #A9B8CC; }
+.top #account button.quiet:hover { color: #F2F5F9; background: rgba(255,255,255,.08); }
+.rooms-toggle { display: none; }
 
 /* --------------------------------------------------------------------- nav */
 nav.main { background: var(--surface); border-bottom: 1px solid var(--border); }
 nav.main ul {
-  max-width: 60rem; margin: 0 auto; padding: 0 8px; list-style: none;
+  max-width: 76rem; margin: 0 auto; padding: 0 8px; list-style: none;
   display: flex; gap: 4px; overflow-x: auto;
 }
 nav.main a {
@@ -108,11 +130,54 @@ nav.main .badge {
   border-radius: 999px; font-size: 14px; font-weight: 700; padding: 1px 8px;
 }
 
-/* -------------------------------------------------------------------- main */
-main { max-width: 60rem; margin: 0 auto; padding: 22px 16px 90px; }
-h1 { font-size: 30px; line-height: 1.2; margin: 0 0 18px; letter-spacing: -0.02em; }
-h2 { font-size: 22px; line-height: 1.25; margin: 32px 0 12px; }
+/* ------------------------------------------------------------------ layout */
+.layout { max-width: 76rem; margin: 0 auto; display: grid; grid-template-columns: 1fr; }
+main { min-width: 0; padding: 22px 16px 90px; }
+h1 { font-family: var(--display); font-weight: 400; font-size: 40px; line-height: 1.08; margin: 0 0 18px; letter-spacing: -0.015em; }
+h2 { font-family: var(--display); font-weight: 400; font-size: 27px; line-height: 1.15; margin: 32px 0 12px; }
 h3 { font-size: 19px; line-height: 1.3; margin: 0 0 4px; }
+
+/* The rooms rail: every room, one tap away, on every page. */
+.rail {
+  background: var(--surface); border-right: 1px solid var(--border);
+  padding: 16px 12px 40px;
+}
+.rail-head { display: flex; align-items: center; justify-content: space-between; min-height: var(--tap); margin-bottom: 6px; }
+.rail-title { font-family: var(--display); font-size: 24px; }
+.rail h2 {
+  font-family: var(--body); font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--muted); margin: 18px 8px 6px;
+}
+.room {
+  /* justify-content is set explicitly: the base button rule centres, and a
+     row with no count on the right would otherwise drift to the middle. */
+  display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; text-align: left;
+  min-height: var(--tap); padding: 8px 10px; border-radius: 10px; border: 0;
+  background: transparent; color: var(--ink); font-size: 17px; font-weight: 500;
+}
+.room:hover { background: var(--surface-2); }
+.room[aria-current="true"] { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--primary); font-weight: 700; }
+.room .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.room .dot.help { background: var(--help); } .room .dot.group { background: var(--group); } .room .dot.social { background: var(--social); }
+.room .n { margin-left: auto; font-size: 15px; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.room.start { color: var(--primary); }
+
+@media (min-width: 900px) {
+  .layout { grid-template-columns: 17rem minmax(0, 1fr); }
+  .rail { position: sticky; top: 74px; max-height: calc(100vh - 74px); overflow-y: auto; }
+  #roomsClose { display: none; }
+}
+@media (max-width: 899px) {
+  .rooms-toggle {
+    display: inline-flex; background: transparent; color: #F2F5F9; border-color: rgba(255,255,255,.32); padding: 10px 14px;
+  }
+  .rail {
+    position: fixed; inset: 0; z-index: 40; overflow-y: auto; border-right: 0;
+    transform: translateX(-100%); transition: transform .25s ease;
+  }
+  .rail.open { transform: none; }
+  @media (prefers-reduced-motion: reduce) { .rail { transition: none; } }
+}
 p { margin: 0 0 12px; }
 .hint { color: var(--muted); font-size: 17px; }
 
@@ -127,8 +192,8 @@ p { margin: 0 0 12px; }
 /* ---------------------------------------------------------------- controls */
 button, .btn {
   font: inherit; font-weight: 600; cursor: pointer;
-  min-height: var(--tap); padding: 12px 20px;
-  border-radius: 10px; border: 2px solid var(--border-strong);
+  min-height: var(--tap); padding: 12px 22px;
+  border-radius: 999px; border: 2px solid var(--border-strong);
   background: var(--surface); color: var(--ink);
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
 }
@@ -172,7 +237,7 @@ label.toggle input { width: 26px; height: 26px; min-height: 0; flex: none; accen
 .cat.help { border-left-color: var(--help); }
 .cat.group { border-left-color: var(--group); }
 .cat.social { border-left-color: var(--social); }
-.cat .nm { font-size: 21px; font-weight: 700; color: var(--ink); display: block; margin-bottom: 4px; }
+.cat .nm { font-family: var(--display); font-size: 25px; font-weight: 400; color: var(--ink); display: block; margin-bottom: 4px; }
 .cat .hn { font-size: 17px; color: var(--muted); font-weight: 400; display: block; }
 .cat .ct { font-size: 16px; color: var(--muted); font-weight: 400; display: block; margin-top: 8px; }
 

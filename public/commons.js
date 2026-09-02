@@ -228,10 +228,58 @@ function renderAccount() {
       await api('/auth/logout', { method: 'POST' });
       state.me = null;
       state.unreadHellos = 0;
-      renderAccount(); renderNav(); go('#/');
+      renderAccount(); renderNav(); renderRooms(); go('#/');
       say('You are signed out.');
     },
   }));
+}
+
+/**
+ * The rooms rail: every room, one tap away, on every page.
+ *
+ * Names only, grouped the way the home page groups them, with the room you are
+ * in marked. Trade rooms carry their professional count as a small number.
+ * On a phone the same list is a full-screen sheet behind the Rooms button.
+ */
+function renderRooms() {
+  const host = document.getElementById('roomList');
+  if (!host) return;
+  const here = window.location.hash || '#/';
+
+  const room = (c) => el('button', {
+    class: 'room',
+    'aria-current': here === `#/c/${c.slug}` ? 'true' : null,
+    onclick: () => { closeRooms(); go(`#/c/${c.slug}`); },
+  },
+    el('span', { class: `dot ${c.kind}` }),
+    el('span', { text: c.name }),
+    isHelp(c.kind) && c.professionals
+      ? el('span', { class: 'n', title: 'Checked professionals', text: String(c.professionals) })
+      : null,
+  );
+
+  const section = (title, rooms, extra) => rooms.length || extra
+    ? el('div', {}, el('h2', { text: title }), ...rooms.map(room), extra)
+    : null;
+
+  const startEntry = state.me
+    ? el('button', { class: 'room start', onclick: () => { closeRooms(); go('#/start'); }, text: '+ Start a group' })
+    : null;
+
+  replaceKids(host,
+    section('Professionals', state.categories.filter((c) => c.kind === 'help')),
+    section('Groups', state.categories.filter((c) => c.kind === 'group'), startEntry),
+    section('Just talk', state.categories.filter((c) => c.kind === 'social')),
+  );
+}
+
+function openRooms() {
+  document.getElementById('rooms')?.classList.add('open');
+  document.getElementById('roomsToggle')?.setAttribute('aria-expanded', 'true');
+}
+function closeRooms() {
+  document.getElementById('rooms')?.classList.remove('open');
+  document.getElementById('roomsToggle')?.setAttribute('aria-expanded', 'false');
 }
 
 function renderNav() {
@@ -1694,6 +1742,7 @@ async function route() {
 async function renderRoute() {
   const hash = window.location.hash || '#/';
   renderNav();
+  renderRooms();
   try {
     if (hash.startsWith('#/c/')) return await viewCategory(decodeURIComponent(hash.slice(4)));
     if (hash.startsWith('#/p/')) return await viewPost(decodeURIComponent(hash.slice(4)));
@@ -1781,6 +1830,7 @@ async function refreshAccount() {
 async function loadCategories() {
   const { channels } = await api('/channels');
   state.categories = channels;
+  renderRooms();
 }
 
 async function loadHellos() {
@@ -1798,6 +1848,12 @@ document.getElementById('searchForm').addEventListener('submit', (event) => {
   if (q) go(`#/find/${encodeURIComponent(q)}`);
 });
 window.addEventListener('hashchange', route);
+document.getElementById('roomsToggle')?.addEventListener('click', () => {
+  const open = document.getElementById('rooms')?.classList.contains('open');
+  if (open) closeRooms(); else openRooms();
+});
+document.getElementById('roomsClose')?.addEventListener('click', closeRooms);
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeRooms(); });
 
 (async function start() {
   try {

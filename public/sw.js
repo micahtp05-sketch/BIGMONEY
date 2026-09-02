@@ -10,7 +10,7 @@
  * Bump SHELL_VERSION whenever commons.js or commons.css changes, or returning
  * members keep the old file until their cache is evicted.
  */
-const SHELL_VERSION = 'commons-shell-v2';
+const SHELL_VERSION = 'commons-shell-v3';
 
 const SHELL = [
   '/',
@@ -20,6 +20,12 @@ const SHELL = [
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/offline.html',
+  // The faces the whole product is set in, so an offline open looks right.
+  '/fonts/instrument-serif.woff2',
+  '/fonts/instrument-serif-italic.woff2',
+  '/fonts/public-sans-400.woff2',
+  '/fonts/public-sans-600.woff2',
+  '/fonts/public-sans-700.woff2',
 ];
 
 self.addEventListener('install', (event) => {
