@@ -5,6 +5,7 @@ import type {
   Channel,
   CommunityData,
   Credential,
+  IdentityRequest,
   MeetupMessage,
   ModerationCase,
   PublicUser,
@@ -13,6 +14,7 @@ import type {
   Session,
   Thread,
   User,
+  VerificationCode,
   Wave,
 } from './types.ts';
 
@@ -28,6 +30,8 @@ const EMPTY: CommunityData = {
   meetupMessages: [],
   reviews: [],
   moderation: [],
+  identityRequests: [],
+  codes: [],
 };
 
 /**
@@ -49,11 +53,16 @@ export class CommunityStore {
   readonly meetupMessages = new Map<string, MeetupMessage>();
   readonly reviews = new Map<string, Review>();
   readonly moderation = new Map<string, ModerationCase>();
+  /** userId -> their outstanding or decided identity request. */
+  readonly identityRequests = new Map<string, IdentityRequest>();
+  readonly codes = new Map<string, VerificationCode>();
 
   /** userId -> credential. */
   private readonly credentials = new Map<string, Credential>();
   /** Secondary indexes, kept in step with the maps above by the add* methods. */
   private readonly usersByHandle = new Map<string, string>();
+  private readonly usersByEmail = new Map<string, string>();
+  private readonly usersByPhone = new Map<string, string>();
   private readonly channelsBySlug = new Map<string, string>();
   private readonly threadsByChannel = new Map<string, string[]>();
   private readonly repliesByThread = new Map<string, string[]>();
@@ -92,6 +101,8 @@ export class CommunityStore {
     for (const m of data.meetupMessages ?? []) this.indexMeetupMessage(m);
     for (const r of data.reviews ?? []) this.indexReview(r);
     for (const c of data.moderation ?? []) this.moderation.set(c.id, c);
+    for (const r of data.identityRequests ?? []) this.identityRequests.set(r.userId, r);
+    for (const c of data.codes ?? []) this.codes.set(c.id, c);
   }
 
   /** Mark dirty and schedule a flush. Callers use this after every mutation. */
@@ -121,6 +132,8 @@ export class CommunityStore {
       meetupMessages: [...this.meetupMessages.values()],
       reviews: [...this.reviews.values()],
       moderation: [...this.moderation.values()],
+      identityRequests: [...this.identityRequests.values()],
+      codes: [...this.codes.values()],
     };
     mkdirSync(dirname(this.path), { recursive: true });
     const tmp = `${this.path}.${process.pid}.tmp`;
@@ -142,6 +155,18 @@ export class CommunityStore {
   private indexUser(user: User): void {
     this.users.set(user.id, user);
     this.usersByHandle.set(user.handle.toLowerCase(), user.id);
+    if (user.email) this.usersByEmail.set(user.email.toLowerCase(), user.id);
+    if (user.phone) this.usersByPhone.set(normalisePhone(user.phone), user.id);
+  }
+
+  userByEmail(email: string): User | undefined {
+    const id = this.usersByEmail.get(email.trim().toLowerCase());
+    return id ? this.users.get(id) : undefined;
+  }
+
+  userByPhone(phone: string): User | undefined {
+    const id = this.usersByPhone.get(normalisePhone(phone));
+    return id ? this.users.get(id) : undefined;
   }
 
   userByHandle(handle: string): User | undefined {
@@ -152,6 +177,8 @@ export class CommunityStore {
   createUser(input: {
     handle: string;
     displayName: string;
+    email: string;
+    phone: string;
     credential: Omit<Credential, 'userId'>;
   }): User {
     const now = Date.now();
@@ -159,6 +186,11 @@ export class CommunityStore {
       id: randomUUID(),
       handle: input.handle.trim().toLowerCase(),
       displayName: input.displayName.trim(),
+      email: input.email.trim().toLowerCase(),
+      emailVerifiedAt: null,
+      phone: normalisePhone(input.phone),
+      phoneVerifiedAt: null,
+      identity: null,
       bio: '',
       skills: [],
       neighborhood: '',
@@ -178,6 +210,19 @@ export class CommunityStore {
 
   credentialFor(userId: string): Credential | undefined {
     return this.credentials.get(userId);
+  }
+
+  setCredential(userId: string, credential: Omit<Credential, 'userId'>): void {
+    this.credentials.set(userId, { userId, ...credential });
+    this.touch();
+  }
+
+  /** Sign somebody out everywhere — used after a password reset. */
+  dropSessionsFor(userId: string): void {
+    for (const [token, session] of this.sessions) {
+      if (session.userId === userId) this.sessions.delete(token);
+    }
+    this.touch();
   }
 
   // ----------------------------------------------------------------- sessions
@@ -416,14 +461,22 @@ export class CommunityStore {
   }
 }
 
+/** Phone numbers are compared without spaces, dashes or brackets. */
+export function normalisePhone(phone: string): string {
+  return phone.replace(/[\s().-]/g, '');
+}
+
 /** Strip everything a member shouldn't see about another member. */
 export function publicUser(user: User): PublicUser {
   const {
     id, handle, displayName, bio, skills, neighborhood, openToChat, role,
     trade, worksInTrade, helpfulCount, createdAt, lastSeenAt,
   } = user;
+  // Email, phone and everything about the identity check stay behind. The only
+  // thing other members learn is whether a real person was confirmed.
   return {
     id, handle, displayName, bio, skills, neighborhood, openToChat, role,
-    trade, worksInTrade, helpfulCount, createdAt, lastSeenAt,
+    trade, worksInTrade, identityVerified: user.identity !== null,
+    helpfulCount, createdAt, lastSeenAt,
   };
 }

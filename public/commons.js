@@ -17,6 +17,7 @@ const state = {
   categories: [],
   unreadHellos: 0,
   queueSize: 0,
+  account: null,
 };
 
 // ---------------------------------------------------------------- utilities
@@ -147,9 +148,12 @@ function ratingLine(summary) {
 }
 
 function tradeLine(person) {
-  if (!person.trade) return null;
+  if (!person.trade && !person.identityVerified) return null;
   return el('p', { class: 'row', style: 'gap:8px; margin:0 0 8px' },
-    el('span', { class: 'tag trade', text: person.trade }),
+    person.trade ? el('span', { class: 'tag trade', text: person.trade }) : null,
+    person.identityVerified
+      ? el('span', { class: 'tag worked', title: 'Commons confirmed a real person is behind this account', text: '✓ Identity checked' })
+      : null,
     person.worksInTrade ? el('span', { class: 'hint', text: 'Says they do this for a living' }) : null);
 }
 
@@ -1083,7 +1087,7 @@ async function viewPerson(handle) {
     el('h2', { text: summary.count === 1 ? '1 review' : `${summary.count} reviews` }),
     summary.unverified > 0
       ? el('p', { class: 'warnbox',
-          text: 'Reviews about paid work cannot be checked by Commons. Nobody here is vetted or licensed.' })
+          text: 'Everyone who answers or works here has had their identity checked. Reviews about paid work happened off Commons, so we cannot check those.' })
       : null,
     reviews.length
       ? el('div', { class: 'stack' }, ...reviews.map(reviewCard))
@@ -1096,6 +1100,7 @@ async function viewPerson(handle) {
 
 async function viewYou() {
   if (signInFirst('see your page')) return;
+  await refreshAccount();
   const me = state.me;
   const name = el('input', { type: 'text', id: 'p-name', value: me.displayName, maxlength: 60 });
   const area = el('input', { type: 'text', id: 'p-area', value: me.neighborhood, maxlength: 80 });
@@ -1150,15 +1155,16 @@ async function viewYou() {
       el('label', { class: 'field' }, el('span', { class: 'lab', text: 'A bit about you' }), about),
       el('label', { class: 'field' },
         el('span', { class: 'lab', text: 'What you can help with' }),
-        el('span', { class: 'help', text: 'Separate them with commas. Shown next to your answers. Nobody checks these.' }),
+        el('span', { class: 'help', text: 'Separate them with commas. Shown next to your answers. We check who you are, not what you can do.' }),
         canHelp),
       el('label', { class: 'field' },
         el('span', { class: 'lab', text: 'Your trade' }),
-        el('span', { class: 'help', text: 'Such as Plumber or Gardener. Leave it empty if you would rather not say.' }),
+        el('span', { class: 'help', text: 'Such as Plumber or Gardener. You need an identity check to list one.' }),
         trade),
       el('label', { class: 'toggle', style: 'margin-bottom:16px' }, forLiving, 'I do this for a living'),
       el('div', { class: 'row' }, save), note,
     ),
+    accountPanel(),
     await myModeration(),
   );
 }
@@ -1194,9 +1200,21 @@ function viewJoin() {
   let mode = 'signup';
   const username = el('input', { type: 'text', id: 'j-user', autocomplete: 'username' });
   const name = el('input', { type: 'text', id: 'j-name', autocomplete: 'name' });
+  const email = el('input', { type: 'email', id: 'j-email', autocomplete: 'email' });
+  const phone = el('input', { type: 'tel', id: 'j-phone', autocomplete: 'tel' });
   const password = el('input', { type: 'password', id: 'j-pass', autocomplete: 'current-password' });
   const note = el('p', { style: 'margin:0' });
   const nameField = el('label', { class: 'field' }, el('span', { class: 'lab', text: 'Your name' }), name);
+  const contactFields = el('div', {},
+    el('label', { class: 'field' },
+      el('span', { class: 'lab', text: 'Email address' }),
+      el('span', { class: 'help', text: 'We send a code to check it. Never shown to other members.' }),
+      email),
+    el('label', { class: 'field' },
+      el('span', { class: 'lab', text: 'Phone number' }),
+      el('span', { class: 'help', text: 'Also checked with a code. Never shown to other members.' }),
+      phone),
+  );
   const heading = el('h1', { text: 'Join Commons' });
   const submit = el('button', { class: 'primary', text: 'Create my account' });
   const swap = el('button', { class: 'quiet', text: 'I already have an account' });
@@ -1208,6 +1226,7 @@ function viewJoin() {
     submit.textContent = joining ? 'Create my account' : 'Sign in';
     swap.textContent = joining ? 'I already have an account' : 'I need an account';
     nameField.hidden = !joining;
+    contactFields.hidden = !joining;
     note.replaceChildren();
   });
 
@@ -1215,7 +1234,13 @@ function viewJoin() {
     submit.disabled = true;
     try {
       const body = mode === 'signup'
-        ? { handle: username.value.trim(), displayName: name.value.trim() || undefined, password: password.value }
+        ? {
+            handle: username.value.trim(),
+            displayName: name.value.trim() || undefined,
+            email: email.value.trim(),
+            phone: phone.value.trim(),
+            password: password.value,
+          }
         : { handle: username.value.trim(), password: password.value };
       const { user } = await api(`/auth/${mode}`, { method: 'POST', body });
       state.me = user;
@@ -1233,12 +1258,13 @@ function viewJoin() {
     el('div', { class: 'card', style: 'max-width:28rem' },
       el('label', { class: 'field' },
         el('span', { class: 'lab', text: 'Username' }),
-        el('span', { class: 'help', text: 'Letters and numbers. This is how people see you.' }),
+        el('span', { class: 'help', text: 'Letters and numbers. This is the only name other members see.' }),
         username),
       nameField,
+      contactFields,
       el('label', { class: 'field' },
         el('span', { class: 'lab', text: 'Password' }),
-        el('span', { class: 'help', text: 'At least 10 characters. There is no email, so it cannot be reset.' }),
+        el('span', { class: 'help', text: 'At least 10 characters.' }),
         password),
       el('div', { class: 'row' }, submit, swap),
       note,
@@ -1261,15 +1287,24 @@ async function viewModeration() {
       el('h1', { text: 'Reports' }),
       el('p', { class: 'hint', text: 'Only moderators can see this.' }));
   }
-  const [{ cases }, log] = await Promise.all([
+  const [{ cases }, log, identity] = await Promise.all([
     api('/moderation/queue'),
     api('/moderation/log').catch(() => ({ cases: [] })),
+    api('/identity/queue').catch(() => ({ requests: [] })),
   ]);
   state.queueSize = cases.length;
   renderNav();
 
   show(
     el('h1', { text: 'Reports' }),
+    identity.requests.length
+      ? el('div', {},
+          el('h2', { style: 'margin-top:8px', text: 'Waiting to be identity-checked' }),
+          el('p', { class: 'hint', style: 'margin:0 0 12px',
+            text: 'Arrange to see something in person or by video. Never ask anybody to send a photo of a document, and never write down what was on it.' }),
+          el('div', { class: 'stack' }, ...identity.requests.map(identityCard)))
+      : null,
+    el('h2', { style: 'margin-top:8px', text: 'Reported content' }),
     el('p', { class: 'hint', text: cases.length
       ? 'Content people have reported. Keeping it puts it back and clears the reports.'
       : 'Nothing is waiting.' }),
@@ -1334,6 +1369,47 @@ function caseCard(item) {
   );
 }
 
+function identityCard(item) {
+  const decide = async (outcome) => {
+    const detail = await askDialog({
+      title: outcome === 'verified' ? `Confirm ${item.user.displayName}?` : `Refuse ${item.user.displayName}?`,
+      label: outcome === 'verified' ? 'How you checked' : 'Why',
+      help: outcome === 'verified'
+        ? 'For example: driving licence, seen in person at the library. This is kept for the record. Never write down the number.'
+        : 'They will see this.',
+      confirmText: outcome === 'verified' ? 'Confirm them' : 'Refuse',
+      danger: outcome === 'refused',
+      needsText: true,
+    });
+    if (detail === null) return;
+    try {
+      await api(`/identity/${encodeURIComponent(item.user.handle)}/decide`, {
+        method: 'POST',
+        body: outcome === 'verified'
+          ? { outcome, method: detail.trim() }
+          : { outcome, reason: detail.trim() },
+      });
+      say(outcome === 'verified' ? 'Confirmed.' : 'Refused.');
+      route();
+    } catch (error) { say(error.message); }
+  };
+
+  return el('div', { class: 'card', style: 'margin:0' },
+    el('p', { class: 'row', style: 'gap:8px; margin:0 0 8px' },
+      el('a', { href: `#/u/${encodeURIComponent(item.user.handle)}`, style: 'font-weight:600', text: item.user.displayName }),
+      item.contactVerified?.email
+        ? el('span', { class: 'tag worked', text: 'Email confirmed' })
+        : el('span', { class: 'tag warnish', text: 'Email not confirmed' }),
+      item.contactVerified?.phone
+        ? el('span', { class: 'tag worked', text: 'Phone confirmed' })
+        : el('span', { class: 'tag warnish', text: 'Phone not confirmed' })),
+    el('p', { class: 'body', style: 'margin:0', text: item.note }),
+    el('div', { class: 'row', style: 'margin-top:12px' },
+      el('button', { class: 'primary', text: 'Confirm them', onclick: () => decide('verified') }),
+      el('button', { text: 'Refuse', onclick: () => decide('refused') })),
+  );
+}
+
 function decidedCard(item) {
   return el('div', { class: 'card tight', style: 'margin:0' },
     el('p', { class: 'row', style: 'gap:8px; margin:0 0 6px' },
@@ -1343,6 +1419,101 @@ function decidedCard(item) {
       item.decidedAt ? el('span', { class: 'hint', text: ago(item.decidedAt) }) : null),
     el('p', { style: 'margin:0; font-weight:600', text: item.preview.title }),
     item.decisionReason ? el('p', { class: 'hint', style: 'margin:4px 0 0', text: item.decisionReason }) : null,
+  );
+}
+
+/**
+ * Your own account: what is checked, and what that unlocks.
+ *
+ * Contact details appear here and nowhere else — no other member ever sees an
+ * email address or a phone number through any route.
+ */
+function accountPanel() {
+  const a = state.account;
+  if (!a) return null;
+
+  const codeRow = (channel, label, value, done) => {
+    const field = el('input', { type: 'text', inputmode: 'numeric', id: `code-${channel}` });
+    const box = el('div', { hidden: true },
+      el('label', { class: 'field', style: 'margin:10px 0 8px' },
+        el('span', { class: 'lab', text: 'The six-digit code' }), field),
+      el('button', {
+        class: 'primary', text: 'Confirm',
+        onclick: async () => {
+          try {
+            await api('/auth/confirm-code', { method: 'POST', body: { channel, code: field.value.trim() } });
+            say(`${label} confirmed.`);
+            route();
+          } catch (error) { say(error.message); }
+        },
+      }));
+
+    return el('div', { style: 'padding:12px 0; border-top:1px solid var(--border)' },
+      el('p', { class: 'row', style: 'gap:10px; margin:0' },
+        el('span', { style: 'font-weight:600', text: label }),
+        done
+          ? el('span', { class: 'tag worked', text: 'Confirmed' })
+          : el('span', { class: 'tag warnish', text: 'Not confirmed yet' })),
+      el('p', { class: 'hint', style: 'margin:4px 0 0', text: value }),
+      done ? null : el('div', {},
+        el('button', {
+          class: 'quiet', style: 'margin-top:8px', text: 'Send me a code',
+          onclick: async () => {
+            try {
+              await api('/auth/send-code', { method: 'POST', body: { channel } });
+              box.hidden = false;
+              say('Code sent.');
+            } catch (error) { say(error.message); }
+          },
+        }),
+        box),
+    );
+  };
+
+  const request = a.identityRequest;
+  const identityBlock = a.identityVerified
+    ? el('p', { class: 'row', style: 'gap:10px; margin:0' },
+        el('span', { style: 'font-weight:600', text: 'Identity' }),
+        el('span', { class: 'tag worked', text: 'Checked' }))
+    : el('div', {},
+        el('p', { class: 'row', style: 'gap:10px; margin:0 0 6px' },
+          el('span', { style: 'font-weight:600', text: 'Identity' }),
+          request && request.outcome === null
+            ? el('span', { class: 'tag', text: 'Waiting to be checked' })
+            : el('span', { class: 'tag warnish', text: 'Not checked' })),
+        el('p', { class: 'hint', style: 'margin:0 0 8px',
+          text: 'You need this to answer questions, list a trade, or host a get-together. You do not need it to ask for help, to chat, or to come along to anything.' }),
+        request && request.outcome === 'refused'
+          ? el('p', { class: 'err', style: 'margin:0 0 8px', text: request.refusedReason || 'That was not accepted.' })
+          : null,
+        request && request.outcome === null
+          ? el('p', { class: 'hint', style: 'margin:0', text: 'A moderator will be in touch.' })
+          : el('button', {
+              text: 'Ask to be checked',
+              onclick: async () => {
+                const note = await askDialog({
+                  title: 'Ask to be checked',
+                  label: 'What can you show, and where',
+                  help: 'Do not send a photo of anything. Say what you can show and where, and a moderator will arrange it. We never store the document.',
+                  confirmText: 'Send',
+                  needsText: true,
+                });
+                if (note === null || !note.trim()) return;
+                try {
+                  await api('/identity/request', { method: 'POST', body: { note: note.trim() } });
+                  say('Sent. A moderator will be in touch.');
+                  route();
+                } catch (error) { say(error.message); }
+              },
+            }),
+      );
+
+  return el('div', { class: 'card' },
+    el('h2', { style: 'margin:0 0 6px', text: 'Your account' }),
+    el('p', { class: 'hint', style: 'margin:0 0 6px', text: 'Only you can see any of this.' }),
+    codeRow('email', 'Email address', a.email, a.emailVerified),
+    codeRow('phone', 'Phone number', a.phone, a.phoneVerified),
+    el('div', { style: 'padding:12px 0 0; border-top:1px solid var(--border)' }, identityBlock),
   );
 }
 
@@ -1493,6 +1664,23 @@ function connectStream() {
 
 // ---------------------------------------------------------------- bootstrap
 
+/**
+ * Re-read the signed-in person's own account state.
+ *
+ * Confirming a code or asking to be checked changes what /me returns, and the
+ * page has to see that — reading it once at start-up left the panel showing a
+ * state the server had already moved on from.
+ */
+async function refreshAccount() {
+  if (!state.me) return;
+  try {
+    const { user, queueSize, account } = await api('/me');
+    state.me = user ?? state.me;
+    state.queueSize = queueSize ?? 0;
+    state.account = account;
+  } catch { /* signed out elsewhere; the next action will say so */ }
+}
+
 async function loadCategories() {
   const { channels } = await api('/channels');
   state.categories = channels;
@@ -1516,9 +1704,10 @@ window.addEventListener('hashchange', route);
 
 (async function start() {
   try {
-    const { user, queueSize } = await api('/me');
+    const { user, queueSize, account } = await api('/me');
     state.me = user;
     state.queueSize = queueSize ?? 0;
+    state.account = account;
   } catch { state.me = null; }
   renderAccount();
   await loadCategories();

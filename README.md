@@ -87,6 +87,7 @@ Installing Commons as an app on a phone or a computer is covered in
 | `COMMUNITY_DATA` | `data/community.json` | Where Commons persists. `:memory:` runs without a file. |
 | `COMMUNITY_SIGNUPS_PER_HOUR` | `5` | New accounts allowed per hour from one IP. |
 | `COMMUNITY_MODERATORS` | — | Handles that are moderators from the start, comma separated. |
+| — | — | **A code sender must be supplied in production.** Pass one to `communityRoutes({ sender })`; the default logs codes to the console and refuses to run when `NODE_ENV=production`. |
 
 ## Estimator API
 
@@ -155,7 +156,13 @@ All routes are under `/api/community`. Session lives in an `HttpOnly`, `SameSite
 cookie.
 
 ```
-POST   /auth/signup | /auth/login | /auth/logout
+POST   /auth/signup     {handle, displayName?, email, phone, password}
+POST   /auth/login | /auth/logout
+POST   /auth/send-code | /auth/confirm-code   {channel: email|phone, code?}
+POST   /auth/forgot | /auth/reset             forgotten password, by email code
+POST   /identity/request           {note} — ask to be identity-checked
+GET    /identity/queue             moderator: who is waiting
+POST   /identity/:handle/decide    moderator: {outcome, method?, reference?, reason?}
 GET    /me                         PATCH /me            profile + presence
 GET    /channels                   POST  /channels
 GET    /channels/:slug             channel + recent threads
@@ -198,6 +205,36 @@ facts and no judgements: what a member *says* they know (shown with "says they k
 wording, next to the answer where it can be weighed), and how many times an asker
 marked one of their answers as the one that worked. Credit follows the mark, so
 un-marking takes the point back.
+
+**Who is checked, and what that means.** An account needs an email address, a phone
+number, a username and a password. Both contact details are confirmed with a
+six-digit code, and there is one account per address and per number — which is most
+of what stops somebody opening fifty.
+
+On top of that, an **identity check** is required before you can answer a question in a
+help category, list a trade, or host a get-together. It is not required to ask for
+help, to chat, or to say you are coming to something. That asymmetry is deliberate:
+the people this site exists for are often the least likely to have a passport to hand,
+and shutting them out of the social half to guard the helping half would defeat it.
+
+A check is arranged and recorded by a moderator. **No document is ever uploaded and
+none is stored.** What is kept is that a check happened, when, by what method, and by
+whom — a passport scan sitting in a JSON file would be the least secure thing in this
+codebase, and the outcome is the only part anybody needs afterwards. The method and
+reference are visible to moderators alone; other members see a single flag.
+
+The badge says **a real, contactable person is behind this account**. It does not say
+they are a competent plumber. Trade remains self-declared, and reviews of paid work
+still carry their own "we cannot check this" label.
+
+Email addresses and phone numbers never leave the server. `publicUser` does not carry
+them and no route returns them for anybody but the account's owner; there is a test
+that fetches a profile and the directory and fails if either string appears.
+
+Having an email address also means a **forgotten password can be reset** — the one
+thing the previous no-email design could not do. A reset signs out every existing
+session, and `/auth/forgot` answers identically whether or not the address is
+registered, so it cannot be used to find out who is here.
 
 **How moderation works.** Three reports hide something within seconds. That is fast,
 and blunt: three people who agree with each other can silence anybody. So the automatic

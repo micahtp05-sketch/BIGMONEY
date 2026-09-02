@@ -16,6 +16,14 @@ import {
 import { EventBus } from './events.ts';
 import { RateLimiter } from './ratelimit.ts';
 import { SEED_CHANNELS } from './seed.ts';
+import {
+  type CodeSender,
+  ConsoleSender,
+  checkCode,
+  issueCode,
+  validateEmail,
+  validatePhone,
+} from './verify.ts';
 import { CommunityStore, publicUser } from './store.ts';
 import type { MeetupMessage, ModerationCase, ReportTarget, Reply, Review, Thread, User } from './types.ts';
 import { replyView, reviewView, summarise, threadView } from './views.ts';
@@ -32,6 +40,8 @@ const tagsField = z.array(z.string().trim().toLowerCase().min(1).max(30)).max(8)
 const signupSchema = z.object({
   handle: z.string(),
   displayName: z.string().trim().min(1).max(60).optional(),
+  email: z.string(),
+  phone: z.string(),
   password: z.string(),
 });
 
@@ -89,6 +99,8 @@ export interface CommunityOptions {
   signupsPerHourPerIp?: number;
   /** Handles that are moderators from the start. */
   moderators?: string[];
+  /** How one-time codes reach people. Defaults to logging them to the console. */
+  sender?: CodeSender;
 }
 
 class HttpError extends Error {
@@ -111,6 +123,7 @@ export function communityRoutes(options: CommunityOptions = {}) {
   const signupsPerHour = options.signupsPerHourPerIp ?? 5;
   // Somebody has to be able to rule on the first report, and there is no way
   // to appoint them from inside an empty instance.
+  const sender = options.sender ?? new ConsoleSender();
   const seededModerators = new Set((options.moderators ?? []).map((h) => h.trim().toLowerCase()).filter(Boolean));
 
   // A fresh instance opens with somewhere to post rather than a blank page.
@@ -146,6 +159,23 @@ export function communityRoutes(options: CommunityOptions = {}) {
       const user = viewer(request);
       if (!user) throw new HttpError(401, 'Sign in to do that.');
       return user;
+    }
+
+    /**
+     * Offering help means a real person has to be behind the account.
+     *
+     * Deliberately one-sided. Asking a question, chatting, saying you are
+     * coming to something — none of that needs an identity check, because the
+     * people who most need this site are the least likely to have a passport
+     * to hand. Answering in a help category, listing a trade, or hosting a
+     * get-together does, because those are the ways somebody could do harm.
+     */
+    function requireVerifiedHelper(user: User, doing: string): void {
+      if (user.identity !== null) return;
+      throw new HttpError(
+        403,
+        `Your identity has to be checked before you can ${doing}. Ask for a check on your own page.`,
+      );
     }
 
     function limit(user: User, action: string, max: number, windowMs: number): void {
@@ -250,14 +280,27 @@ export function communityRoutes(options: CommunityOptions = {}) {
       if (handleError) throw new HttpError(400, handleError);
       const passwordError = validatePassword(input.password);
       if (passwordError) throw new HttpError(400, passwordError);
-      if (store.userByHandle(input.handle)) throw new HttpError(409, 'That handle is taken.');
+      const emailError = validateEmail(input.email);
+      if (emailError) throw new HttpError(400, emailError);
+      const phoneError = validatePhone(input.phone);
+      if (phoneError) throw new HttpError(400, phoneError);
+
+      if (store.userByHandle(input.handle)) throw new HttpError(409, 'That username is taken.');
+      // One account per address and per number, which is most of what stops a
+      // spammer opening fifty of them.
+      if (store.userByEmail(input.email)) throw new HttpError(409, 'There is already an account with that email address.');
+      if (store.userByPhone(input.phone)) throw new HttpError(409, 'There is already an account with that phone number.');
 
       const credential = await hashPassword(input.password);
       const user = store.createUser({
         handle: input.handle,
         displayName: input.displayName?.trim() || input.handle.trim(),
+        email: input.email,
+        phone: input.phone,
         credential,
       });
+      await issueCode(store, sender, user.id, 'email', user.email);
+      await issueCode(store, sender, user.id, 'phone', user.phone);
       if (seededModerators.has(user.handle)) {
         user.role = 'moderator';
         store.touch();
@@ -300,6 +343,17 @@ export function communityRoutes(options: CommunityOptions = {}) {
         user: user ? publicUser(user) : null,
         unreadMessages: user ? store.unreadMeetupMessages(user.id) : 0,
         queueSize: user?.role === 'moderator' ? store.openCases().length : 0,
+        // Only the account's owner ever sees these, and only about themselves.
+        account: user
+          ? {
+              email: user.email,
+              phone: user.phone,
+              emailVerified: user.emailVerifiedAt !== null,
+              phoneVerified: user.phoneVerifiedAt !== null,
+              identityVerified: user.identity !== null,
+              identityRequest: store.identityRequests.get(user.id) ?? null,
+            }
+          : null,
       };
     });
 
@@ -310,6 +364,10 @@ export function communityRoutes(options: CommunityOptions = {}) {
       if (input.bio !== undefined) user.bio = input.bio;
       if (input.neighborhood !== undefined) user.neighborhood = input.neighborhood;
       if (input.skills !== undefined) user.skills = [...new Set(input.skills)];
+      if (input.trade !== undefined || input.worksInTrade !== undefined) {
+        const wantsListing = (input.trade ?? user.trade).length > 0 || (input.worksInTrade ?? user.worksInTrade);
+        if (wantsListing) requireVerifiedHelper(user, 'list a trade');
+      }
       if (input.trade !== undefined) user.trade = input.trade;
       if (input.worksInTrade !== undefined) user.worksInTrade = input.worksInTrade;
       if (input.openToChat !== undefined && input.openToChat !== user.openToChat) {
@@ -318,6 +376,150 @@ export function communityRoutes(options: CommunityOptions = {}) {
       }
       store.touch();
       return { user: publicUser(user) };
+    });
+
+    // -------------------------------------------------- contact verification
+
+    app.post('/auth/send-code', async (request) => {
+      const user = requireUser(request);
+      const input = z.object({ channel: z.enum(['email', 'phone']) }).parse(request.body);
+      limit(user, `code-${input.channel}`, 5, 60 * 60 * 1000);
+      await issueCode(store, sender, user.id, input.channel, input.channel === 'email' ? user.email : user.phone);
+      return { ok: true, sentTo: input.channel === 'email' ? user.email : user.phone };
+    });
+
+    app.post('/auth/confirm-code', async (request) => {
+      const user = requireUser(request);
+      const input = z.object({ channel: z.enum(['email', 'phone']), code: z.string() }).parse(request.body);
+      const result = await checkCode(store, user.id, input.channel, input.code);
+      if (result === 'ok') {
+        if (input.channel === 'email') user.emailVerifiedAt = Date.now();
+        else user.phoneVerifiedAt = Date.now();
+        store.touch();
+        return { ok: true };
+      }
+      const messages = {
+        wrong: 'That code is not right.',
+        expired: 'That code has run out. Ask for a new one.',
+        none: 'Ask for a code first.',
+        'too-many': 'Too many tries. Ask for a new code.',
+      } as const;
+      throw new HttpError(400, messages[result]);
+    });
+
+    /** Forgotten passwords, now that there is an address to send to. */
+    app.post('/auth/forgot', async (request) => {
+      const input = z.object({ email: z.string() }).parse(request.body);
+      const ip = request.ip ?? 'unknown';
+      if (!limiter.allow(`forgot:${ip}`, 10, 60 * 60 * 1000)) {
+        throw new HttpError(429, 'Too many attempts. Wait a while.');
+      }
+      const user = store.userByEmail(input.email);
+      // Always the same answer, so this cannot be used to find out who is here.
+      if (user) await issueCode(store, sender, user.id, 'reset', user.email);
+      return { ok: true };
+    });
+
+    app.post('/auth/reset', async (request, reply) => {
+      const input = z
+        .object({ email: z.string(), code: z.string(), password: z.string() })
+        .parse(request.body);
+      const passwordError = validatePassword(input.password);
+      if (passwordError) throw new HttpError(400, passwordError);
+      const user = store.userByEmail(input.email);
+      const invalid = new HttpError(400, 'That code is not right, or it has run out.');
+      if (!user) throw invalid;
+
+      const result = await checkCode(store, user.id, 'reset', input.code);
+      if (result !== 'ok') throw invalid;
+
+      const credential = await hashPassword(input.password);
+      store.setCredential(user.id, credential);
+      // Anybody signed in as them elsewhere is signed out.
+      store.dropSessionsFor(user.id);
+      return sendSession(reply, user);
+    });
+
+    // ---------------------------------------------------- identity checking
+
+    app.post('/identity/request', async (request) => {
+      const user = requireUser(request);
+      if (user.identity) throw new HttpError(409, 'You are already verified.');
+      const input = z.object({ note: z.string().trim().min(1).max(500) }).parse(request.body);
+      const existing = store.identityRequests.get(user.id);
+      if (existing && existing.outcome === null) {
+        throw new HttpError(409, 'We are already looking at your request.');
+      }
+      store.identityRequests.set(user.id, {
+        userId: user.id,
+        note: input.note,
+        createdAt: Date.now(),
+        decidedAt: null,
+        decidedBy: null,
+        outcome: null,
+        refusedReason: '',
+      });
+      store.touch();
+      return { ok: true };
+    });
+
+    app.get('/identity/queue', async (request) => {
+      requireModerator(request);
+      const waiting = [...store.identityRequests.values()]
+        .filter((r) => r.outcome === null)
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .map((r) => {
+          const person = store.users.get(r.userId);
+          return {
+            user: person ? publicUser(person) : null,
+            note: r.note,
+            createdAt: r.createdAt,
+            // A moderator needs to know these are real before vouching for the person.
+            contactVerified: person
+              ? { email: person.emailVerifiedAt !== null, phone: person.phoneVerifiedAt !== null }
+              : null,
+          };
+        })
+        .filter((r) => r.user !== null);
+      return { requests: waiting };
+    });
+
+    app.post('/identity/:handle/decide', async (request) => {
+      const moderator = requireModerator(request);
+      const { handle } = z.object({ handle: z.string() }).parse(request.params);
+      const input = z
+        .object({
+          outcome: z.enum(['verified', 'refused']),
+          method: z.string().trim().max(120).optional(),
+          reference: z.string().trim().max(120).optional(),
+          reason: z.string().trim().max(500).optional(),
+        })
+        .parse(request.body);
+
+      const person = store.userByHandle(handle);
+      if (!person) throw new HttpError(404, 'No such member.');
+      const record = store.identityRequests.get(person.id);
+      if (!record) throw new HttpError(404, 'They have not asked to be verified.');
+
+      record.outcome = input.outcome;
+      record.decidedAt = Date.now();
+      record.decidedBy = moderator.id;
+      record.refusedReason = input.outcome === 'refused' ? (input.reason ?? '') : '';
+
+      if (input.outcome === 'verified') {
+        // The outcome is recorded. The document is not, was not uploaded, and
+        // is not wanted — only that a person confirmed it, how, and when.
+        person.identity = {
+          verifiedAt: Date.now(),
+          method: input.method?.trim() || 'checked by a moderator',
+          reference: input.reference?.trim() || '',
+          checkedBy: moderator.id,
+        };
+      } else {
+        person.identity = null;
+      }
+      store.touch();
+      return { user: publicUser(person) };
     });
 
     // ------------------------------------------------------------ channels
@@ -397,6 +599,7 @@ export function communityRoutes(options: CommunityOptions = {}) {
       if (input.meetup && input.meetup.startsAt < Date.now() - 60_000) {
         throw new HttpError(400, 'That meetup time is already in the past.');
       }
+      if (input.meetup) requireVerifiedHelper(user, 'host a get-together');
 
       const now = Date.now();
       const thread = store.addThread({
@@ -458,6 +661,8 @@ export function communityRoutes(options: CommunityOptions = {}) {
       const input = z.object({ body: textField(8000) }).parse(request.body);
       const thread = threadOr404(id);
       if (thread.hidden) throw new HttpError(403, 'This thread is under review.');
+      const channel = store.channels.get(thread.channelId);
+      if (channel?.kind === 'help') requireVerifiedHelper(user, 'answer questions');
 
       const created = store.addReply({
         id: randomUUID(),

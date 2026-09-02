@@ -14,6 +14,41 @@ export type ChannelKind = 'help' | 'group' | 'social';
 
 export type UserRole = 'member' | 'moderator';
 
+export interface IdentityCheck {
+  verifiedAt: number;
+  /** How it was confirmed, e.g. "in person" or the name of a provider. */
+  method: string;
+  /** A reference that can be traced back without holding the document. */
+  reference: string;
+  /** The moderator who recorded it, when a person did the checking. */
+  checkedBy: string | null;
+}
+
+/** Somebody asking to be identity-checked, waiting for a moderator. */
+export interface IdentityRequest {
+  userId: string;
+  /** What they say they can show, in their words. No document is uploaded. */
+  note: string;
+  createdAt: number;
+  decidedAt: number | null;
+  decidedBy: string | null;
+  outcome: 'verified' | 'refused' | null;
+  refusedReason: string;
+}
+
+/** A one-time code sent to an email address or a phone. */
+export interface VerificationCode {
+  /** `${userId}:${channel}` — one live code per channel per person. */
+  id: string;
+  userId: string;
+  channel: 'email' | 'phone' | 'reset';
+  /** Hashed, never the code itself. */
+  hash: string;
+  salt: string;
+  expiresAt: number;
+  attempts: number;
+}
+
 export interface Channel {
   id: string;
   /** URL-safe name, unique. */
@@ -33,9 +68,26 @@ export interface Channel {
 
 export interface User {
   id: string;
-  /** Unique, lowercase, URL-safe. */
+  /** Unique, lowercase, URL-safe. The only name other members ever see. */
   handle: string;
   displayName: string;
+  /**
+   * Contact details. Never leave the server: `publicUser` does not carry them
+   * and no route returns them for anybody but the account's owner.
+   */
+  email: string;
+  emailVerifiedAt: number | null;
+  phone: string;
+  phoneVerifiedAt: number | null;
+  /**
+   * The outcome of an identity check, and nothing else.
+   *
+   * Commons never stores the document, the number on it, or an image of it.
+   * Keeping passport scans in a JSON file would be the least secure thing in
+   * this codebase, and the only thing anyone actually needs afterwards is
+   * whether a real person was confirmed, when, how, and by whom.
+   */
+  identity: IdentityCheck | null;
   bio: string;
   /** Self-declared skills, matched against channel topics. */
   skills: string[];
@@ -71,6 +123,8 @@ export interface PublicUser {
   role: UserRole;
   trade: string;
   worksInTrade: boolean;
+  /** Whether a real person was confirmed behind this account. Never the details. */
+  identityVerified: boolean;
   helpfulCount: number;
   createdAt: number;
   lastSeenAt: number;
@@ -277,6 +331,8 @@ export interface CommunityData {
   meetupMessages: MeetupMessage[];
   reviews: Review[];
   moderation: ModerationCase[];
+  identityRequests: IdentityRequest[];
+  codes: VerificationCode[];
 }
 
 /** Server-sent event payloads. One union so the client can switch exhaustively. */

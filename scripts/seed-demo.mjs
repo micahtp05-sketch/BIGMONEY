@@ -7,7 +7,7 @@
  * through the public API, exactly as a browser would, so what you end up
  * looking at is the real code path and not a fixture.
  *
- *   COMMUNITY_SIGNUPS_PER_HOUR=100 npm start &
+ *   COMMUNITY_SIGNUPS_PER_HOUR=100 COMMUNITY_MODERATORS=commonsmod npm start &
  *   npm run seed:demo
  *
  * Every account it creates shares one well-known password, so it refuses to
@@ -77,16 +77,52 @@ if (health.members > 0 && process.env.SEED_FORCE !== '1') {
 
 // ---------------------------------------------------------------- the people
 
+let phoneSeq = 0;
+
 async function member(handle, displayName, profile) {
+  phoneSeq += 1;
   const { data, cookie } = await call('/auth/signup', {
     method: 'POST',
-    body: { handle, displayName, password: PASSWORD },
+    body: {
+      handle,
+      displayName,
+      email: `${handle}@example.test`,
+      phone: `+44770090${String(phoneSeq).padStart(4, '0')}`,
+      password: PASSWORD,
+    },
   });
-  await call('/me', { method: 'PATCH', cookie, body: profile });
-  return { id: data.user.id, cookie, handle, displayName };
+  return { id: data.user.id, cookie, handle, displayName, profile };
+}
+
+/**
+ * Put somebody through the identity check, the way a moderator would.
+ * Needed before anyone can answer a question, list a trade or host anything.
+ */
+async function check(person, moderatorCookie) {
+  await call('/identity/request', {
+    method: 'POST', cookie: person.cookie,
+    body: { note: 'Showed a driving licence at the library desk.' },
+  });
+  await call(`/identity/${person.handle}/decide`, {
+    method: 'POST', cookie: moderatorCookie,
+    body: { outcome: 'verified', method: 'driving licence, seen in person', reference: 'LIB' },
+  });
+}
+
+/** Profiles are applied after any identity check they depend on. */
+async function applyProfile(person) {
+  await call('/me', { method: 'PATCH', cookie: person.cookie, body: person.profile });
 }
 
 const DAY = 86_400_000;
+
+// A moderator, so the reports queue is reachable in the demo. Only becomes one
+// if the server was started with COMMUNITY_MODERATORS=commonsmod.
+const moderator = await member('commonsmod', 'Sam Okonkwo', {
+  bio: 'Keeps an eye on reports. Ask me if something looks wrong.',
+  neighborhood: 'Riverside',
+  skills: [],
+});
 
 const mara = await member('mara', 'Mara Ellis', {
   bio: 'Retired heating engineer. Happy to talk anyone through a boiler.',
@@ -119,19 +155,20 @@ const priya = await member('priyas', 'Priya Shah', {
   skills: ['gardening'],
   openToChat: true,
 });
-// A moderator, so the reports queue is reachable in the demo. Only becomes one
-// if the server was started with COMMUNITY_MODERATORS=commonsmod.
-const moderator = await member('commonsmod', 'Sam Okonkwo', {
-  bio: 'Keeps an eye on reports. Ask me if something looks wrong.',
-  neighborhood: 'Riverside',
-  skills: [],
-});
-
 const eli = await member('elik', 'Eli Kowalski', {
   bio: 'Night shifts, so I am awake when nobody else is.',
   neighborhood: 'The Mills',
   skills: ['electrical'],
 });
+
+// The moderator does the checking, so they go first — seeded by
+// COMMUNITY_MODERATORS, which the run instructions set.
+await applyProfile(moderator);
+const modCookie = moderator.cookie;
+for (const person of [mara, dev, joan, tom, priya, eli]) {
+  await check(person, modCookie);
+  await applyProfile(person);
+}
 
 // ------------------------------------------ a question that gets answered well
 

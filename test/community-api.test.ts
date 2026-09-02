@@ -12,19 +12,31 @@ async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   // Every inject call shares one IP, so the anti-spam signup cap has to be
   // lifted here or the suite locks itself out after five accounts.
-  await app.register(communityRoutes({ dataPath: null, signupsPerHourPerIp: 1000 }), {
-    prefix: '/api/community',
-  });
+  await app.register(
+    // 'tmod' is seeded so tests can put an account through the real identity
+    // check rather than reaching past it.
+    communityRoutes({ dataPath: null, signupsPerHourPerIp: 1000, moderators: ['tmod'] }),
+    { prefix: '/api/community' },
+  );
   await app.ready();
   return app;
 }
 
 /** Sign up and return the cookie header a signed-in client would send. */
+let phoneCounter = 0;
+
 async function signUp(app: FastifyInstance, handle: string) {
+  phoneCounter += 1;
   const res = await app.inject({
     method: 'POST',
     url: '/api/community/auth/signup',
-    payload: { handle, displayName: handle, password: 'a-good-long-password' },
+    payload: {
+      handle,
+      displayName: handle,
+      email: `${handle}@example.test`,
+      phone: `+447700${String(phoneCounter).padStart(6, '0')}`,
+      password: 'a-good-long-password',
+    },
   });
   assert.equal(res.statusCode, 200, res.body);
   const setCookie = res.headers['set-cookie'];
@@ -52,6 +64,38 @@ async function signIn(app: FastifyInstance, handle: string): Promise<string> {
 
 const asUser = (cookie: string) => ({ cookie });
 
+/** Put an account through the real identity check, as a moderator would. */
+async function verifyIdentity(app: FastifyInstance, who: { cookie: string; user: { handle: string } }) {
+  const asked = await app.inject({
+    method: 'POST', url: '/api/community/identity/request', headers: asUser(who.cookie),
+    payload: { note: 'Showed a driving licence at the library.' },
+  });
+  assert.equal(asked.statusCode, 200, asked.body);
+
+  // The seeded moderator exists once per app; sign up first, sign in after.
+  let modCookie: string;
+  const created = await app.inject({
+    method: 'POST', url: '/api/community/auth/signup',
+    payload: {
+      handle: 'tmod', displayName: 'Test Moderator',
+      email: 'tmod@example.test', phone: '+447700999999',
+      password: 'a-good-long-password',
+    },
+  });
+  if (created.statusCode === 200) {
+    const raw = created.headers['set-cookie'];
+    modCookie = (Array.isArray(raw) ? raw[0] : raw)!.split(';')[0] as string;
+  } else {
+    modCookie = await signIn(app, 'tmod');
+  }
+
+  const decided = await app.inject({
+    method: 'POST', url: `/api/community/identity/${who.user.handle}/decide`, headers: asUser(modCookie),
+    payload: { outcome: 'verified', method: 'driving licence, in person', reference: 'LIB-1' },
+  });
+  assert.equal(decided.statusCode, 200, decided.body);
+}
+
 describe('Commons API', () => {
   let app: FastifyInstance;
 
@@ -68,14 +112,14 @@ describe('Commons API', () => {
   it('rejects a weak password and a taken handle', async () => {
     const weak = await app.inject({
       method: 'POST', url: '/api/community/auth/signup',
-      payload: { handle: 'weakling', password: 'short' },
+      payload: { handle: 'weakling', email: 'w@example.test', phone: '+447700111111', password: 'short' },
     });
     assert.equal(weak.statusCode, 400);
 
     await signUp(app, 'firstcomer');
     const dupe = await app.inject({
       method: 'POST', url: '/api/community/auth/signup',
-      payload: { handle: 'firstcomer', password: 'a-good-long-password' },
+      payload: { handle: 'firstcomer', email: 'fc2@example.test', phone: '+447700111112', password: 'a-good-long-password' },
     });
     assert.equal(dupe.statusCode, 409);
   });
@@ -106,6 +150,7 @@ describe('Commons API', () => {
   it('carries a question through ask, answer, and accepted answer', async () => {
     const asker = await signUp(app, 'asker');
     const helper = await signUp(app, 'helper');
+    await verifyIdentity(app, helper);
 
     // The helper claims plumbing, which Home & Repairs lists as a topic.
     await app.inject({
@@ -150,6 +195,7 @@ describe('Commons API', () => {
   it('lets only the asker mark the answer, and takes credit back when unmarked', async () => {
     const asker = await signUp(app, 'asker2');
     const helper = await signUp(app, 'helper2');
+    await verifyIdentity(app, helper);
     const bystander = await signUp(app, 'bystander');
 
     const thread = (await app.inject({
@@ -181,6 +227,7 @@ describe('Commons API', () => {
 
   it('counts a helpful vote once and refuses self-voting', async () => {
     const author = await signUp(app, 'writer');
+    await verifyIdentity(app, author);
     const reader = await signUp(app, 'reader');
     const thread = (await app.inject({
       method: 'POST', url: '/api/community/channels/garden-yard/threads',
@@ -208,6 +255,7 @@ describe('Commons API', () => {
 
   it('runs a meetup: host is going, others RSVP, waitlist past capacity', async () => {
     const host = await signUp(app, 'host');
+    await verifyIdentity(app, host);
     const guest = await signUp(app, 'guest');
     const latecomer = await signUp(app, 'latecomer');
 
@@ -240,6 +288,7 @@ describe('Commons API', () => {
 
   it('keeps meetups out of help channels and rejects times in the past', async () => {
     const user = await signUp(app, 'planner');
+    await verifyIdentity(app, user);
     const wrongChannel = await app.inject({
       method: 'POST', url: '/api/community/channels/home-repair/threads', headers: asUser(user.cookie),
       payload: {
@@ -447,6 +496,7 @@ describe('private meetup messages', () => {
   /** A get-together with a host and one guest who is coming. */
   async function meetupWithGuest(suffix: string) {
     const host = await signUp(app, `mhost${suffix}`);
+    await verifyIdentity(app, host);
     const guest = await signUp(app, `mguest${suffix}`);
     const created = await app.inject({
       method: 'POST', url: '/api/community/channels/meetups/threads', headers: asUser(host.cookie),
@@ -472,6 +522,7 @@ describe('private meetup messages', () => {
 
   it('rejects a location field rather than silently storing it', async () => {
     const host = await signUp(app, 'sneakyhost');
+    await verifyIdentity(app, host);
     const res = await app.inject({
       method: 'POST', url: '/api/community/channels/meetups/threads', headers: asUser(host.cookie),
       payload: {
@@ -648,6 +699,7 @@ describe('reviews', () => {
   async function askedAndAnswered(suffix: string) {
     const asker = await signUp(app, `rasker${suffix}`);
     const helper = await signUp(app, `rhelper${suffix}`);
+    await verifyIdentity(app, helper);
     const thread = (await app.inject({
       method: 'POST', url: '/api/community/channels/home-repair/threads', headers: asUser(asker.cookie),
       payload: { title: 'Dripping tap', body: 'It drips all night.' },
@@ -721,6 +773,7 @@ describe('reviews', () => {
 
   it('lets somebody host a get-together and be reviewed by whoever came', async () => {
     const host = await signUp(app, 'rhost');
+    await verifyIdentity(app, host);
     const guest = await signUp(app, 'rguest');
     const thread = (await app.inject({
       method: 'POST', url: '/api/community/channels/meetups/threads', headers: asUser(host.cookie),
@@ -795,6 +848,7 @@ describe('reviews', () => {
 
   it('carries a self-declared trade, and can filter the directory by it', async () => {
     const plumber = await signUp(app, 'rplumber');
+    await verifyIdentity(app, plumber);
     await app.inject({
       method: 'PATCH', url: '/api/community/me', headers: asUser(plumber.cookie),
       payload: { trade: 'Plumber', worksInTrade: true },
@@ -894,6 +948,7 @@ describe('ranking providers by their reviews', () => {
   it('counts a checked review for more than an unverifiable one', async () => {
     const asker = await signUp(app, 'rankasker');
     const checked = await signUp(app, 'rankchecked');
+    await verifyIdentity(app, checked);
     const claimed = await signUp(app, 'rankclaimed');
 
     const thread = (await app.inject({
@@ -1144,6 +1199,261 @@ describe('moderation', () => {
   });
 });
 
+describe('accounts, contact details and identity', () => {
+  let app: FastifyInstance;
+
+  before(async () => { app = await buildApp(); });
+  after(async () => { await app.close(); });
+
+  it('requires an email address and a phone number to join', async () => {
+    for (const missing of [{ email: undefined }, { phone: undefined }]) {
+      const res = await app.inject({
+        method: 'POST', url: '/api/community/auth/signup',
+        payload: {
+          handle: `part${Object.keys(missing)[0]}`,
+          email: 'a@example.test', phone: '+447700400001',
+          password: 'a-good-long-password',
+          ...missing,
+        },
+      });
+      assert.equal(res.statusCode, 400);
+    }
+  });
+
+  it('rejects an address or number that is not one', async () => {
+    const badEmail = await app.inject({
+      method: 'POST', url: '/api/community/auth/signup',
+      payload: { handle: 'bademail', email: 'not-an-address', phone: '+447700400002', password: 'a-good-long-password' },
+    });
+    assert.equal(badEmail.statusCode, 400);
+    assert.match(badEmail.json().error, /email/i);
+
+    const badPhone = await app.inject({
+      method: 'POST', url: '/api/community/auth/signup',
+      payload: { handle: 'badphone', email: 'ok@example.test', phone: 'call me', password: 'a-good-long-password' },
+    });
+    assert.equal(badPhone.statusCode, 400);
+    assert.match(badPhone.json().error, /phone/i);
+  });
+
+  it('allows one account per address and per number', async () => {
+    await signUp(app, 'firstclaim');
+    const sameEmail = await app.inject({
+      method: 'POST', url: '/api/community/auth/signup',
+      payload: { handle: 'copycat', email: 'firstclaim@example.test', phone: '+447700400003', password: 'a-good-long-password' },
+    });
+    assert.equal(sameEmail.statusCode, 409);
+
+    const sameNumber = await app.inject({
+      method: 'POST', url: '/api/community/auth/signup',
+      payload: { handle: 'copycat2', email: 'other@example.test', phone: '+447700400003', password: 'a-good-long-password' },
+    });
+    // Different people, same number — the second is refused once the first exists.
+    const claimed = await app.inject({
+      method: 'POST', url: '/api/community/auth/signup',
+      payload: { handle: 'copycat3', email: 'third@example.test', phone: '+447700400003', password: 'a-good-long-password' },
+    });
+    assert.ok(sameNumber.statusCode === 409 || claimed.statusCode === 409);
+  });
+
+  it('treats a number the same however it is punctuated', async () => {
+    await app.inject({
+      method: 'POST', url: '/api/community/auth/signup',
+      payload: { handle: 'spaced', email: 'spaced@example.test', phone: '+44 7700 400 010', password: 'a-good-long-password' },
+    });
+    const again = await app.inject({
+      method: 'POST', url: '/api/community/auth/signup',
+      payload: { handle: 'unspaced', email: 'unspaced@example.test', phone: '+447700400010', password: 'a-good-long-password' },
+    });
+    assert.equal(again.statusCode, 409, 'spacing must not create a second account');
+  });
+
+  it('never shows one member another member\'s email or phone', async () => {
+    const person = await signUp(app, 'privateperson');
+    const nosy = await signUp(app, 'nosyneighbour');
+
+    const profile = await app.inject({ method: 'GET', url: '/api/community/people/privateperson', headers: asUser(nosy.cookie) });
+    const directory = await app.inject({ method: 'GET', url: '/api/community/people', headers: asUser(nosy.cookie) });
+    for (const res of [profile, directory]) {
+      const body = res.body;
+      assert.equal(body.includes('privateperson@example.test'), false, 'an email address leaked');
+      assert.equal(body.includes('+447700'), false, 'a phone number leaked');
+    }
+    assert.ok(person.user.id);
+  });
+
+  it('shows people their own details, and only their own', async () => {
+    const person = await signUp(app, 'ownaccount');
+    const me = await app.inject({ method: 'GET', url: '/api/community/me', headers: asUser(person.cookie) });
+    assert.equal(me.json().account.email, 'ownaccount@example.test');
+    assert.equal(me.json().account.emailVerified, false);
+    assert.equal(me.json().account.identityVerified, false);
+
+    const anon = await app.inject({ method: 'GET', url: '/api/community/me' });
+    assert.equal(anon.json().account, null);
+  });
+
+  it('confirms an address with the code, and refuses a wrong one', async () => {
+    const codes: string[] = [];
+    const instance = Fastify({ logger: false });
+    await instance.register(
+      communityRoutes({
+        dataPath: null, signupsPerHourPerIp: 1000,
+        sender: { name: 'test', async send(_to, _channel, code) { codes.push(code); } },
+      }),
+      { prefix: '/api/community' },
+    );
+    await instance.ready();
+    try {
+      const person = await signUp(instance, 'codeperson');
+      assert.equal(codes.length, 2, 'a code goes to the address and to the number');
+
+      const wrong = await instance.inject({
+        method: 'POST', url: '/api/community/auth/confirm-code', headers: asUser(person.cookie),
+        payload: { channel: 'email', code: '000000' },
+      });
+      assert.equal(wrong.statusCode, 400);
+
+      const right = await instance.inject({
+        method: 'POST', url: '/api/community/auth/confirm-code', headers: asUser(person.cookie),
+        payload: { channel: 'email', code: codes[0] },
+      });
+      assert.equal(right.statusCode, 200, right.body);
+
+      const me = await instance.inject({ method: 'GET', url: '/api/community/me', headers: asUser(person.cookie) });
+      assert.equal(me.json().account.emailVerified, true);
+      assert.equal(me.json().account.phoneVerified, false, 'confirming one does not confirm the other');
+    } finally {
+      await instance.close();
+    }
+  });
+
+  it('resets a forgotten password with a code, and signs the old sessions out', async () => {
+    const codes: string[] = [];
+    const instance = Fastify({ logger: false });
+    await instance.register(
+      communityRoutes({
+        dataPath: null, signupsPerHourPerIp: 1000,
+        sender: { name: 'test', async send(_to, channel, code) { if (channel === 'reset') codes.push(code); } },
+      }),
+      { prefix: '/api/community' },
+    );
+    await instance.ready();
+    try {
+      const person = await signUp(instance, 'forgetful');
+      await instance.inject({ method: 'POST', url: '/api/community/auth/forgot', payload: { email: 'forgetful@example.test' } });
+      assert.equal(codes.length, 1);
+
+      const reset = await instance.inject({
+        method: 'POST', url: '/api/community/auth/reset',
+        payload: { email: 'forgetful@example.test', code: codes[0], password: 'a-brand-new-password' },
+      });
+      assert.equal(reset.statusCode, 200, reset.body);
+
+      // The session they had before is gone.
+      const old = await instance.inject({ method: 'GET', url: '/api/community/me', headers: asUser(person.cookie) });
+      assert.equal(old.json().user, null);
+
+      const signedIn = await instance.inject({
+        method: 'POST', url: '/api/community/auth/login',
+        payload: { handle: 'forgetful', password: 'a-brand-new-password' },
+      });
+      assert.equal(signedIn.statusCode, 200);
+    } finally {
+      await instance.close();
+    }
+  });
+
+  it('says the same thing whether or not the address is registered', async () => {
+    const known = await app.inject({ method: 'POST', url: '/api/community/auth/forgot', payload: { email: 'ownaccount@example.test' } });
+    const unknown = await app.inject({ method: 'POST', url: '/api/community/auth/forgot', payload: { email: 'nobody@example.test' } });
+    assert.equal(known.statusCode, unknown.statusCode);
+    assert.deepEqual(known.json(), unknown.json());
+  });
+
+  it('will not let an unchecked account answer a question, list a trade, or host', async () => {
+    const asker = await signUp(app, 'gasker');
+    const unchecked = await signUp(app, 'gunchecked');
+    const thread = (await app.inject({
+      method: 'POST', url: '/api/community/channels/home-repair/threads', headers: asUser(asker.cookie),
+      payload: { title: 'Dripping tap', body: 'All night.' },
+    })).json().thread;
+
+    const answering = await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/replies`, headers: asUser(unchecked.cookie),
+      payload: { body: 'Change the washer.' },
+    });
+    assert.equal(answering.statusCode, 403);
+    assert.match(answering.json().error, /identity/i);
+
+    const trading = await app.inject({
+      method: 'PATCH', url: '/api/community/me', headers: asUser(unchecked.cookie),
+      payload: { trade: 'Plumber', worksInTrade: true },
+    });
+    assert.equal(trading.statusCode, 403);
+
+    const hosting = await app.inject({
+      method: 'POST', url: '/api/community/channels/meetups/threads', headers: asUser(unchecked.cookie),
+      payload: { title: 'Walk', body: 'Slow.', meetup: { startsAt: Date.now() + 86_400_000, capacity: 0 } },
+    });
+    assert.equal(hosting.statusCode, 403);
+  });
+
+  it('lets an unchecked account ask, chat and come along', async () => {
+    const person = await signUp(app, 'gasking');
+    const asked = await app.inject({
+      method: 'POST', url: '/api/community/channels/tech-help/threads', headers: asUser(person.cookie),
+      payload: { title: 'Printer will not print', body: 'It blinks orange.' },
+    });
+    assert.equal(asked.statusCode, 201, 'asking for help must never need an ID');
+
+    const chatted = await app.inject({
+      method: 'POST', url: '/api/community/channels/chat/threads', headers: asUser(person.cookie),
+      payload: { title: 'Hello', body: 'Just saying hello.' },
+    });
+    assert.equal(chatted.statusCode, 201, 'chatting must never need an ID');
+  });
+
+  it('opens those doors once a moderator has checked them', async () => {
+    const asker = await signUp(app, 'gasker2');
+    const helper = await signUp(app, 'gchecked');
+    const thread = (await app.inject({
+      method: 'POST', url: '/api/community/channels/home-repair/threads', headers: asUser(asker.cookie),
+      payload: { title: 'Cold radiator', body: 'Top is cold.' },
+    })).json().thread;
+
+    await verifyIdentity(app, helper);
+    const answering = await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/replies`, headers: asUser(helper.cookie),
+      payload: { body: 'It needs bleeding.' },
+    });
+    assert.equal(answering.statusCode, 201, answering.body);
+
+    const profile = await app.inject({ method: 'GET', url: '/api/community/people/gchecked' });
+    assert.equal(profile.json().user.identityVerified, true);
+  });
+
+  it('records that a check happened, never the document behind it', async () => {
+    const person = await signUp(app, 'gdocument');
+    await verifyIdentity(app, person);
+    const profile = await app.inject({ method: 'GET', url: '/api/community/people/gdocument' });
+    const body = profile.body;
+    assert.equal(body.includes('driving licence'), false, 'the method must not be public');
+    assert.equal(body.includes('LIB-1'), false, 'the reference must not be public');
+    assert.equal(profile.json().user.identityVerified, true);
+  });
+
+  it('keeps the identity queue to moderators', async () => {
+    const person = await signUp(app, 'gqueue');
+    await app.inject({
+      method: 'POST', url: '/api/community/identity/request', headers: asUser(person.cookie),
+      payload: { note: 'I can bring a passport to the library.' },
+    });
+    const denied = await app.inject({ method: 'GET', url: '/api/community/identity/queue', headers: asUser(person.cookie) });
+    assert.equal(denied.statusCode, 403);
+  });
+});
+
 describe('anti-spam limits', () => {
   it('caps new accounts per IP', async () => {
     const app = Fastify({ logger: false });
@@ -1152,16 +1462,21 @@ describe('anti-spam limits', () => {
     });
     await app.ready();
     try {
-      for (const handle of ['one', 'two']) {
+      for (const [i, handle] of ['one', 'two'].entries()) {
         const ok = await app.inject({
           method: 'POST', url: '/api/community/auth/signup',
-          payload: { handle, password: 'a-good-long-password' },
+          payload: {
+            handle,
+            email: `${handle}@example.test`,
+            phone: `+44770030000${i}`,
+            password: 'a-good-long-password',
+          },
         });
-        assert.equal(ok.statusCode, 200);
+        assert.equal(ok.statusCode, 200, ok.body);
       }
       const third = await app.inject({
         method: 'POST', url: '/api/community/auth/signup',
-        payload: { handle: 'three', password: 'a-good-long-password' },
+        payload: { handle: 'three', email: 'three@example.test', phone: '+447700223000', password: 'a-good-long-password' },
       });
       assert.equal(third.statusCode, 429);
     } finally {

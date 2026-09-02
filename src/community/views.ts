@@ -48,6 +48,7 @@ const GHOST: PublicUser = {
   role: 'member',
   trade: '',
   worksInTrade: false,
+  identityVerified: false,
   helpfulCount: 0,
   createdAt: 0,
   lastSeenAt: 0,

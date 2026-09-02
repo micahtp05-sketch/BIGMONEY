@@ -79,9 +79,49 @@ await step('sign up through the UI', async () => {
   await page.waitForSelector('main h1:text("Join Commons")');
   await page.fill('#j-user', `browser${unique}`);
   await page.fill('#j-name', 'Browser Tester');
+  await page.fill('#j-email', `browser${unique}@example.test`);
+  await page.fill('#j-phone', `+4477001${unique.slice(-5).replace(/\D/g, '9').padStart(5, '9')}`);
   await page.fill('#j-pass', 'a-good-long-password');
   await page.click('button:text("Create my account")');
   await page.waitForSelector('#account button:text("Sign out")');
+});
+
+await step('an unchecked account cannot answer, list a trade, or host', async () => {
+  // Asking is never gated; giving help is. Prove the second half here.
+  await page.goto(`${BASE}/#/you`);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForSelector('main h1:has-text("Your page")');
+  if (!(await page.isVisible('.tag.warnish:has-text("Not checked")'))) {
+    throw new Error('a new account is not shown as unchecked');
+  }
+  const tried = await page.request.patch(`${BASE}/api/community/me`, {
+    data: { trade: 'Plumber', worksInTrade: true },
+  });
+  if (tried.ok()) throw new Error('an unchecked account was allowed to list a trade');
+});
+
+await step('a moderator checks them, and the doors open', async () => {
+  await page.click('button:has-text("Ask to be checked")');
+  await page.waitForSelector('dialog[open]');
+  await page.fill('#dialogInput', 'I can bring a driving licence to the library.');
+  await page.click('dialog button:has-text("Send")');
+  await page.waitForSelector('.tag:has-text("Waiting to be checked")');
+
+  const mod = await browser.newPage();
+  const signedIn = await mod.request.post(`${BASE}/api/community/auth/login`, {
+    data: { handle: 'commonsmod', password: 'a-good-long-password' },
+  });
+  if (!signedIn.ok()) throw new Error('the seeded moderator could not sign in');
+  const decided = await mod.request.post(`${BASE}/api/community/identity/browser${unique}/decide`, {
+    data: { outcome: 'verified', method: 'driving licence, seen in person', reference: 'LIB' },
+  });
+  if (!decided.ok()) throw new Error(`the check was refused: ${decided.status()}`);
+  await mod.close();
+
+  await page.goto(`${BASE}/#/you`);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForSelector('.tag.worked:has-text("Checked")');
+  await assertNoPlaceholders('your own account page');
 });
 
 await step('post a question in a help channel', async () => {
@@ -148,7 +188,11 @@ await step('the host sends the address privately and only the guest sees it', as
   // A second person says they are coming, which opens their channel.
   const guest = await browser.newPage();
   await guest.request.post(`${BASE}/api/community/auth/signup`, {
-    data: { handle: `guest${unique}`, displayName: 'Guest Person', password: 'a-good-long-password' },
+    data: {
+      handle: `guest${unique}`, displayName: 'Guest Person',
+      email: `guest${unique}@example.test`, phone: `+4477002${unique.slice(-5).replace(/\D/g, '8').padStart(5, '8')}`,
+      password: 'a-good-long-password',
+    },
   });
   await guest.request.post(`${BASE}/api/community/threads/${threadId}/rsvp`);
 
@@ -178,7 +222,11 @@ await step('the host sends the address privately and only the guest sees it', as
   // Nobody else does — not even on the page, and not from the API.
   const outsider = await browser.newPage();
   await outsider.request.post(`${BASE}/api/community/auth/signup`, {
-    data: { handle: `nosy${unique}`, password: 'a-good-long-password' },
+    data: {
+      handle: `nosy${unique}`,
+      email: `nosy${unique}@example.test`, phone: `+4477003${unique.slice(-5).replace(/\D/g, '7').padStart(5, '7')}`,
+      password: 'a-good-long-password',
+    },
   });
   await outsider.goto(`${BASE}/#/p/${threadId}`, { waitUntil: 'networkidle' });
   await outsider.waitForSelector('main h1');
@@ -319,7 +367,11 @@ await step('live update arrives over SSE', async () => {
 
   const other = await browser.newPage();
   await other.request.post(`${BASE}/api/community/auth/signup`, {
-    data: { handle: `sse${unique}`, password: 'a-good-long-password' },
+    data: {
+      handle: `sse${unique}`,
+      email: `sse${unique}@example.test`, phone: `+4477004${unique.slice(-5).replace(/\D/g, '6').padStart(5, '6')}`,
+      password: 'a-good-long-password',
+    },
   });
   await other.request.post(`${BASE}/api/community/channels/chat/threads`, {
     data: { title: `Live from another window ${unique}`, body: `Did this appear ${unique}?` },
@@ -345,7 +397,11 @@ await step('a moderator can put back something three people hid', async () => {
   for (const n of [1, 2, 3]) {
     const reporter = await browser.newPage();
     await reporter.request.post(`${BASE}/api/community/auth/signup`, {
-      data: { handle: `rep${n}${unique}`, password: 'a-good-long-password' },
+      data: {
+        handle: `rep${n}${unique}`,
+        email: `rep${n}${unique}@example.test`, phone: `+447700${n}${unique.slice(-5).replace(/\D/g, '5').padStart(5, '5')}`,
+        password: 'a-good-long-password',
+      },
     });
     const res = await reporter.request.post(`${BASE}/api/community/report`, {
       data: { kind: 'thread', id: target.id, reason: `objection ${n}` },

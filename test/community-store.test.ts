@@ -20,6 +20,8 @@ async function seedUser(store: CommunityStore, handle: string) {
   return store.createUser({
     handle,
     displayName: handle,
+    email: `${handle}@example.test`,
+    phone: `+4470000${String(handle.length).padStart(5, '0')}`,
     credential: await hashPassword('correct horse battery'),
   });
 }
