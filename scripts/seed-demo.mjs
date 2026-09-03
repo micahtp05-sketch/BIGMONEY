@@ -361,7 +361,8 @@ Sign in as any of these — the password for all of them is "${PASSWORD}":
   commonsmod  a moderator, if COMMUNITY_MODERATORS=commonsmod was set
 
 Worth a look:
-  /#/c/home-repair    an accepted answer, and a repair-or-replace question with a price estimate
+  /#/c/heating        the radiator question, and the answer its asker accepted
+  /#/c/plumbers       a repair-or-replace question carrying a price estimate
   /#/meetups          two meetups with RSVPs
   /#/people           who is open to chat right now
   /#/c/chat           somebody posting at 3am, answered inside the hour
