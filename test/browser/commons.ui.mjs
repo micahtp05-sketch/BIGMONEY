@@ -465,6 +465,62 @@ await step('a post renders as text, never as markup', async () => {
   if (!bodies.some((t) => t.includes('<script>'))) throw new Error('message not shown verbatim');
 });
 
+await step('blocking someone shuts contact and leaves their posts alone', async () => {
+  // Two fresh accounts, so nothing here depends on what the seeder made.
+  const one = `blkone${unique}`;
+  const two = `blktwo${unique}`;
+  for (const [i, handle] of [one, two].entries()) {
+    const made = await page.request.post(`${BASE}/api/community/auth/signup`, {
+      data: {
+        handle, displayName: handle, email: `${handle}@example.test`,
+        phone: `+44770${String(Date.now() % 100000).padStart(5, '0')}${i}`, password: 'a-good-long-password',
+      },
+    });
+    if (!made.ok()) throw new Error(`could not sign up ${handle}: ${made.status()}`);
+  }
+  // `two` says something in a room, then `one` blocks them.
+  const posted = await page.request.post(`${BASE}/api/community/channels/chat/threads`, {
+    data: { title: `Something ${two} said`, body: 'Still here after the block.' },
+  });
+  if (!posted.ok()) throw new Error('the second account could not post');
+
+  await page.request.post(`${BASE}/api/community/auth/login`, {
+    data: { handle: one, password: 'a-good-long-password' },
+  });
+  await page.goto(`${BASE}/#/u/${two}`);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForSelector('main h1');
+  if (!(await page.$(`button:has-text("Say hello")`))) throw new Error('no way to say hello before the block');
+
+  await page.click('button:has-text("Block ")');
+  await page.waitForSelector('dialog[open]');
+  await page.click('dialog button:has-text("Block")');
+  await page.waitForSelector('main .warnbox:has-text("You have blocked them")');
+  await assertNoPlaceholders('a blocked profile');
+
+  // Contact is gone; what they wrote is not.
+  if (await page.$(`button:has-text("Say hello")`)) throw new Error('still offered a hello after blocking');
+  if (await page.$('summary:has-text("Write a review")')) throw new Error('still offered a review after blocking');
+  const posts = await page.$$eval('main .post .t', (n) => n.map((x) => x.textContent));
+  if (!posts.some((t) => t.includes(two))) throw new Error(`their post vanished from their profile: ${JSON.stringify(posts)}`);
+
+  // The room itself is untouched for the person who blocked.
+  await page.goto(`${BASE}/#/c/chat`);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForSelector('.msg');
+  const shown = await page.$$eval('.msg', (n) => n.map((x) => x.textContent));
+  if (!shown.some((t) => t.includes(two))) throw new Error('blocking hid them from a public room');
+
+  // And it is listed on their own page, with a way back.
+  await page.goto(`${BASE}/#/you`);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForSelector('main .card:has-text("you have blocked")');
+  await assertNoPlaceholders('your own page with a block on it');
+  await page.click('.card:has-text("you have blocked") button:has-text("Unblock")');
+  await page.waitForTimeout(600);
+  if (await page.$('main .card:has-text("you have blocked")')) throw new Error('unblocking left the panel up');
+});
+
 await browser.close();
 console.log(errors.length ? `\nPROBLEMS:\n${errors.join('\n')}` : '\nALL UI CHECKS PASSED');
 process.exit(errors.length ? 1 : 0);

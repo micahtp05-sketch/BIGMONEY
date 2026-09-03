@@ -2,7 +2,6 @@
 
 **Status:** built and tested, not deployed. Nobody has used it.
 **Branch:** `claude/community-needs-platform-cttvf4` · **PR:** micahtp05-sketch/BIGMONEY#2
-**Head:** `c9182fd` · 17 commits · 50 files · ~10,700 lines added
 
 ---
 
@@ -41,14 +40,14 @@ is no bundler, no lockfile churn, and why the client is plain ES modules.
 
 | Command | What it does | Needs |
 |---|---|---|
-| `npm test` | 136 unit + API tests | nothing, runs offline |
+| `npm test` | 152 unit + API tests | nothing, runs offline |
 | `npm run typecheck` | `tsc --noEmit` | nothing |
-| `npm run test:browser` | 22 interface checks | a running server + Playwright |
+| `npm run test:browser` | 23 interface checks | a running server + Playwright |
 | `npm run test:pwa` | 7 install checks | a running server + Playwright |
 | `npm run seed:demo` | fills an empty instance via the public API | a running server |
 | `npm run icons` | regenerates app icons from source | nothing |
 
-**165 checks, all green at `c9182fd`.**
+**182 checks, all green.**
 
 ---
 
@@ -94,6 +93,14 @@ and 1 for an unchecked one. The prior stops one glowing review winning; the
 weighting halves what a fabricated one buys. People with no reviews get their
 own section rather than being ranked last — otherwise nobody new is ever seen.
 
+**A block closes contact, never speech.** Waves, the private meetup channel, RSVPs
+between the two, and new reviews all close — in both directions from one
+record. Nothing either has posted is touched and no review already written is
+removed, because hiding posts would let somebody erase a checked professional's
+answers from a trade room, and a vanishing review would make blocking the
+cheapest way to clear a bad rating. A block never puts anybody beyond
+moderation, and the blocked person is never told who shut the door.
+
 **Three reports are a holding action, not a verdict.** A moderator rules
 afterwards and the ruling sticks: keeping something clears the reports and it is
 never auto-hidden again, so the same three people cannot re-report their way
@@ -115,6 +122,10 @@ rules are in `docs/simple-ui.md`; packaging is in `docs/apps.md`.
    timeouts. The default console sender refuses to start under
    `NODE_ENV=production`, so this fails loudly, but until it is wired the checks
    that stop somebody claiming an address they do not own are not running.
+   Still true as of the latest session: `api.resend.com`, `api.postmarkapp.com`,
+   `api.sendgrid.com` and `api.twilio.com` were each tried and every one was
+   refused at the egress proxy. This needs somebody with credentials and a host,
+   not another build container.
 2. **Deploy over HTTPS.** Nothing is hosted. The PWA cannot be installed without
    it and the whole thing currently runs on a laptop.
 3. **Appoint moderators.** `COMMUNITY_MODERATORS=handle1,handle2` seeds the
@@ -128,7 +139,6 @@ rules are in `docs/simple-ui.md`; packaging is in `docs/apps.md`.
 
 | | Gap | Why it matters |
 |---|---|---|
-| High | **Nobody can be blocked** | You can report content but not stop a specific person contacting you. The one-hello-a-day limit slows a nuisance; it does not stop one. |
 | High | **Identity checking does not scale** | A moderator arranges to see something in person. Fine for a street, not a city, and while the queue is unattended nobody new can answer. |
 | Med | **No notifications** | Ask a question, close the tab, never learn it was answered. Biggest retention risk, and the native justification a store submission needs. |
 | Med | **Reviews cannot be answered** | Deliberate (owner's call). A mistaken `hired` review sits on someone's trade and now also moves them down a ranked list. |
@@ -137,7 +147,7 @@ rules are in `docs/simple-ui.md`; packaging is in `docs/apps.md`.
 | Med | **Chat re-renders on live updates** | Loses scroll position and a half-typed message. |
 | Low | **Trade→room matching is string-based** | "Gas engineer" finds Heating & Gas; "Sparky" finds nothing. Fix is a picklist mapped to rooms. |
 | Low | **Search is a substring scan** | Over every thread, every time. |
-| Low | **Service worker version is manual** | Change `commons.js` without bumping `SHELL_VERSION` and returning users keep the old file. |
+| Low | **Service worker version is manual** | Change `commons.js` without bumping `SHELL_VERSION` and returning users keep the old file. Currently `commons-shell-v4`. |
 | Low | **Accessibility specified, not audited** | `docs/simple-ui.md` sets a numeric floor and some of it is enforced by tests. No screen reader has touched it. |
 | Low | **Capacitor / Electron never built** | Scaffolded only; no Xcode, no Android SDK, no Electron binary in the build container. See `docs/apps.md`. |
 | Low | **eBay adapter never ran live** | Inherited from the pre-existing estimator, unchanged. |
@@ -146,10 +156,14 @@ rules are in `docs/simple-ui.md`; packaging is in `docs/apps.md`.
 
 1. Wire the code senders and deploy over HTTPS. Everything else is blocked
    behind those two.
-2. Build blocking. It is the largest hole in a platform whose stated purpose is
-   reaching isolated people, and private channels make it matter more.
-3. Add notifications. Without them the community will not retain anyone, and
-   they are what makes an app-store submission defensible.
+2. Add notifications. Without them the community will not retain anyone, and
+   they are what makes an app-store submission defensible. Web push needs the
+   HTTPS from (1) before it can be finished.
+3. Make identity checking scale past one moderator seeing people in person.
+   Until it does, the queue is the bottleneck on anybody new being able to
+   answer in a trade room.
+
+Blocking, which used to be the top of this list, is built — see §3.
 
 ---
 
@@ -161,8 +175,8 @@ src/community/senders/  email + SMS adapters behind one CodeSender interface
 public/commons.js       the whole client, plain ES modules, no framework
 public/welcome/         landing page + the 3D constellation (canvas, no library)
 public/fonts/           the five faces shared by site and app
-test/                   136 offline tests
-test/browser/           29 checks that need a real browser
+test/                   152 offline tests
+test/browser/           30 checks that need a real browser
 docs/simple-ui.md       the interface standard the UI is held to
 docs/apps.md            what installs where, and what was never built
 scripts/seed-demo.mjs   fills an instance through the public API

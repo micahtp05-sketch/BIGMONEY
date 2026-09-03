@@ -10,7 +10,7 @@
  * Bump SHELL_VERSION whenever commons.js or commons.css changes, or returning
  * members keep the old file until their cache is evicted.
  */
-const SHELL_VERSION = 'commons-shell-v3';
+const SHELL_VERSION = 'commons-shell-v4';
 
 const SHELL = [
   '/',

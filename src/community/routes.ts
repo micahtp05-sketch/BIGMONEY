@@ -185,6 +185,51 @@ export function communityRoutes(options: CommunityOptions = {}) {
     }
 
     /**
+     * Refuse a piece of person-to-person contact when either has blocked the other.
+     *
+     * The wording never says which of the two set it, and never distinguishes a
+     * block from any other reason a member cannot be reached. Somebody who has
+     * been blocked learns that they cannot get through, which is the point; they
+     * do not get it confirmed that this particular person shut the door, which
+     * would make a block worth retaliating over.
+     */
+    function requireContactOpen(user: User, otherId: string): void {
+      if (store.blockedBetween(user.id, otherId)) {
+        throw new HttpError(403, 'You cannot contact this member.');
+      }
+    }
+
+    /**
+     * Take back any RSVP that stands between these two, in either direction.
+     *
+     * Only the host-to-guest relationship counts, because that is the one that
+     * ends with an address being handed over: a meetup has no location field,
+     * so the host tells each guest privately once they say they are coming.
+     * Leaving a block in place while that obligation stands would make blocking
+     * somebody the moment before they arrive at your door do nothing at all.
+     *
+     * Two strangers who merely happen to be going to the same third person's
+     * meetup are left alone — that meetup is not either of theirs to police.
+     */
+    function withdrawRsvpsBetween(a: string, b: string): number {
+      let withdrawn = 0;
+      for (const thread of store.threads.values()) {
+        const meetup = thread.meetup;
+        if (!meetup) continue;
+        const guestId = thread.authorId === a ? b : thread.authorId === b ? a : null;
+        if (guestId === null) continue;
+        const at = meetup.rsvps.indexOf(guestId);
+        if (at === -1) continue;
+        // Splicing also promotes whoever was first on the waitlist.
+        meetup.rsvps.splice(at, 1);
+        withdrawn += 1;
+        bus.publish({ type: 'thread.updated', channelId: thread.channelId, threadId: thread.id });
+      }
+      if (withdrawn > 0) store.touch();
+      return withdrawn;
+    }
+
+    /**
      * Whether a member counts as a professional in a given room.
      *
      * Identity checked, says they do it for a living, and their trade fits one
@@ -801,8 +846,15 @@ export function communityRoutes(options: CommunityOptions = {}) {
       if (!meetup) throw new HttpError(400, 'That thread is not a meetup.');
 
       const at = meetup.rsvps.indexOf(user.id);
-      if (at === -1) meetup.rsvps.push(user.id);
-      else meetup.rsvps.splice(at, 1);
+      if (at === -1) {
+        // Saying you are coming is contact: it obliges the host to tell you
+        // where they live. Taking it back never is, so that half is never
+        // refused — somebody must always be able to stop coming.
+        requireContactOpen(user, thread.authorId);
+        meetup.rsvps.push(user.id);
+      } else {
+        meetup.rsvps.splice(at, 1);
+      }
       store.touch();
       bus.publish({ type: 'thread.updated', channelId: thread.channelId, threadId: thread.id });
 
@@ -899,6 +951,10 @@ export function communityRoutes(options: CommunityOptions = {}) {
       const thread = threadOr404(id);
       if (thread.hidden) throw new HttpError(403, 'This get-together is under review.');
       const { hostId, guestId } = channelFor(thread, user, input.guest);
+      // Blocking withdraws the RSVP, so the check below would already refuse
+      // this. Saying it here as well means the private channel stays shut even
+      // if some later route learns how to add an RSVP without going past a block.
+      requireContactOpen(user, user.id === hostId ? guestId : hostId);
 
       // Sending needs a live channel: the guest has to actually be coming.
       if (!isComing(thread, guestId)) {
@@ -974,6 +1030,11 @@ export function communityRoutes(options: CommunityOptions = {}) {
       const skill = query.skill?.trim().toLowerCase();
       const trade = query.trade?.trim().toLowerCase();
       const people = [...store.users.values()]
+        // Blocked either way, and they drop out of each other's browsing. The
+        // profile itself stays reachable: hiding it would leak the block back
+        // to the person it was set against, and there is nothing on it that
+        // blocking was meant to keep from them.
+        .filter((u) => (me ? !store.blockedBetween(me.id, u.id) : true))
         .filter((u) => (query.open === '1' ? u.openToChat : true))
         .filter((u) => (query.trade !== undefined ? u.worksInTrade : true))
         .filter((u) => (skill ? u.skills.some((s) => s.toLowerCase() === skill) : true))
@@ -1008,6 +1069,9 @@ export function communityRoutes(options: CommunityOptions = {}) {
         threads,
         summary: summarise(reviews),
         reviews: reviews.slice(0, 20).map((r) => reviewView(store, r, me?.id ?? null)),
+        // Strictly one-way: whether *you* blocked *them*, so the button reads
+        // right. Never whether they blocked you.
+        viewerBlocked: me ? store.hasBlocked(me.id, user.id) : false,
       };
     });
 
@@ -1057,6 +1121,7 @@ export function communityRoutes(options: CommunityOptions = {}) {
       const subject = store.userByHandle(handle);
       if (!subject) throw new HttpError(404, 'No such member.');
       if (subject.id === user.id) throw new HttpError(400, 'You cannot review yourself.');
+      requireContactOpen(user, subject.id);
       if (store.reviewBy(user.id, subject.id)) {
         throw new HttpError(409, 'You have already reviewed them.');
       }
@@ -1110,6 +1175,10 @@ export function communityRoutes(options: CommunityOptions = {}) {
       const subject = store.userByHandle(handle);
       if (!subject) throw new HttpError(404, 'No such member.');
 
+      // Nothing to offer when they cannot be reviewed anyway — otherwise the
+      // client shows a button whose only outcome is a refusal.
+      if (store.blockedBetween(user.id, subject.id)) return { shared: [] };
+
       const shared = [...store.threads.values()]
         .filter((t) => !t.hidden && t.deletedAt === null)
         .filter((t) => helpedMe(t.id, subject.id, user.id))
@@ -1117,6 +1186,63 @@ export function communityRoutes(options: CommunityOptions = {}) {
         .slice(0, 20)
         .map((t) => ({ id: t.id, title: t.title, isMeetup: t.meetup !== null }));
       return { shared };
+    });
+
+    // -------------------------------------------------------------- blocks
+
+    /**
+     * Stop somebody reaching you.
+     *
+     * What this closes: waves, the private meetup channel, saying you are
+     * coming to a get-together they host (or them saying it to yours), and
+     * writing a review of each other. It runs in both directions from this one
+     * record, so the person blocked cannot simply carry on from their side.
+     *
+     * What it deliberately leaves alone: everything either of them has already
+     * posted in a room, and every review already written. Rooms are public and
+     * stay that way — see the note on `Block` in types.ts. And a review that
+     * vanished when its subject blocked its author would make blocking the
+     * cheapest way to clear a rating, which is the one thing a review must
+     * never allow.
+     */
+    app.post('/people/:handle/block', async (request) => {
+      const user = requireUser(request);
+      const { handle } = z.object({ handle: z.string() }).parse(request.params);
+      const target = store.userByHandle(handle);
+      if (!target) throw new HttpError(404, 'No such member.');
+      if (target.id === user.id) throw new HttpError(400, 'You cannot block yourself.');
+
+      store.addBlock(user.id, target.id);
+      const withdrawn = withdrawRsvpsBetween(user.id, target.id);
+      return { blocked: true, rsvpsWithdrawn: withdrawn };
+    });
+
+    /**
+     * Let them back in.
+     *
+     * RSVPs withdrawn by the block are not restored: a get-together somebody
+     * stopped coming to is one they have to say they are coming to again.
+     */
+    app.delete('/people/:handle/block', async (request) => {
+      const user = requireUser(request);
+      const { handle } = z.object({ handle: z.string() }).parse(request.params);
+      const target = store.userByHandle(handle);
+      if (!target) throw new HttpError(404, 'No such member.');
+      store.removeBlock(user.id, target.id);
+      return { blocked: false };
+    });
+
+    /** Who you have blocked. Nobody can ask this about anybody else. */
+    app.get('/blocks', async (request) => {
+      const user = requireUser(request);
+      const blocks = store
+        .blocksBy(user.id)
+        .map((b) => {
+          const person = store.users.get(b.blockedId);
+          return person ? { person: publicUser(person), createdAt: b.createdAt } : null;
+        })
+        .filter((b): b is { person: ReturnType<typeof publicUser>; createdAt: number } => b !== null);
+      return { blocks };
     });
 
     // --------------------------------------------------------------- waves
@@ -1129,6 +1255,7 @@ export function communityRoutes(options: CommunityOptions = {}) {
       if (input.toUserId === user.id) throw new HttpError(400, 'You cannot wave at yourself.');
       const target = store.users.get(input.toUserId);
       if (!target) throw new HttpError(404, 'No such member.');
+      requireContactOpen(user, target.id);
 
       const last = store.lastWaveAt(user.id, target.id);
       if (last !== null && Date.now() - last < WAVE_COOLDOWN_MS) {

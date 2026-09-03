@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type {
+  Block,
   Channel,
   CommunityData,
   Credential,
@@ -27,6 +28,7 @@ const EMPTY: CommunityData = {
   threads: [],
   replies: [],
   waves: [],
+  blocks: [],
   meetupMessages: [],
   reviews: [],
   moderation: [],
@@ -50,6 +52,8 @@ export class CommunityStore {
   readonly replies = new Map<string, Reply>();
   readonly sessions = new Map<string, Session>();
   readonly waves = new Map<string, Wave>();
+  /** Keyed `blockerId:blockedId` — one record per direction a person set. */
+  readonly blocks = new Map<string, Block>();
   readonly meetupMessages = new Map<string, MeetupMessage>();
   readonly reviews = new Map<string, Review>();
   readonly moderation = new Map<string, ModerationCase>();
@@ -69,6 +73,8 @@ export class CommunityStore {
   /** Keyed `threadId:guestId` — one private channel per meetup per guest. */
   private readonly messagesByChannel = new Map<string, string[]>();
   private readonly reviewsBySubject = new Map<string, string[]>();
+  /** blockerId -> the ids they have blocked, so listing needs no scan. */
+  private readonly blocksByBlocker = new Map<string, string[]>();
 
   private readonly path: string | null;
   private flushTimer: NodeJS.Timeout | null = null;
@@ -98,6 +104,7 @@ export class CommunityStore {
     for (const t of data.threads) this.indexThread(t);
     for (const r of data.replies) this.indexReply(r);
     for (const w of data.waves) this.waves.set(w.id, w);
+    for (const b of data.blocks ?? []) this.indexBlock(b);
     for (const m of data.meetupMessages ?? []) this.indexMeetupMessage(m);
     for (const r of data.reviews ?? []) this.indexReview(r);
     for (const c of data.moderation ?? []) this.moderation.set(c.id, c);
@@ -129,6 +136,7 @@ export class CommunityStore {
       threads: [...this.threads.values()],
       replies: [...this.replies.values()],
       waves: [...this.waves.values()],
+      blocks: [...this.blocks.values()],
       meetupMessages: [...this.meetupMessages.values()],
       reviews: [...this.reviews.values()],
       moderation: [...this.moderation.values()],
@@ -336,6 +344,67 @@ export class CommunityStore {
     return [...this.waves.values()]
       .filter((w) => w.toUserId === userId)
       .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  // ------------------------------------------------------------------ blocks
+
+  private static blockKey(blockerId: string, blockedId: string): string {
+    return `${blockerId}:${blockedId}`;
+  }
+
+  private indexBlock(block: Block): void {
+    this.blocks.set(CommunityStore.blockKey(block.blockerId, block.blockedId), block);
+    const list = this.blocksByBlocker.get(block.blockerId);
+    if (list) {
+      if (!list.includes(block.blockedId)) list.push(block.blockedId);
+    } else {
+      this.blocksByBlocker.set(block.blockerId, [block.blockedId]);
+    }
+  }
+
+  /** Idempotent: blocking somebody already blocked keeps the original stamp. */
+  addBlock(blockerId: string, blockedId: string): Block {
+    const existing = this.blocks.get(CommunityStore.blockKey(blockerId, blockedId));
+    if (existing) return existing;
+    const block: Block = { blockerId, blockedId, createdAt: Date.now() };
+    this.indexBlock(block);
+    this.touch();
+    return block;
+  }
+
+  /** Returns whether there was one to remove. */
+  removeBlock(blockerId: string, blockedId: string): boolean {
+    if (!this.blocks.delete(CommunityStore.blockKey(blockerId, blockedId))) return false;
+    const list = this.blocksByBlocker.get(blockerId);
+    if (list) {
+      const at = list.indexOf(blockedId);
+      if (at !== -1) list.splice(at, 1);
+    }
+    this.touch();
+    return true;
+  }
+
+  /** Did `blockerId` block `blockedId`? Directional — usually not what you want. */
+  hasBlocked(blockerId: string, blockedId: string): boolean {
+    return this.blocks.has(CommunityStore.blockKey(blockerId, blockedId));
+  }
+
+  /**
+   * Is contact between these two closed, whoever closed it?
+   *
+   * This is the check nearly every route wants. A block that only ran in the
+   * direction it was set would leave the blocked person free to keep waving.
+   */
+  blockedBetween(a: string, b: string): boolean {
+    return this.hasBlocked(a, b) || this.hasBlocked(b, a);
+  }
+
+  /** Who this member has blocked, most recent first. Only ever shown to them. */
+  blocksBy(blockerId: string): Block[] {
+    return (this.blocksByBlocker.get(blockerId) ?? [])
+      .map((id) => this.blocks.get(CommunityStore.blockKey(blockerId, id)))
+      .filter((b): b is Block => b !== undefined)
+      .sort((x, y) => y.createdAt - x.createdAt);
   }
 
   // ------------------------------------------------------------ moderation

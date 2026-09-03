@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -146,6 +146,56 @@ describe('CommunityStore', () => {
     assert.equal('password' in shown, false);
     assert.equal('hash' in shown, false);
     assert.equal(shown.handle, 'ida');
+  });
+
+  it('carries blocks through a restart, and an old file without them still loads', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'commons-'));
+    const path = join(dir, 'community.json');
+    try {
+      const first = new CommunityStore(path);
+      const a = await seedUser(first, 'blocker');
+      const b = await seedUser(first, 'blocked');
+      first.addBlock(a.id, b.id);
+      first.close();
+
+      const second = new CommunityStore(path);
+      assert.equal(second.blockedBetween(a.id, b.id), true);
+      assert.equal(second.hasBlocked(a.id, b.id), true);
+      assert.equal(second.hasBlocked(b.id, a.id), false, 'the record itself has a direction');
+      assert.deepEqual(second.blocksBy(a.id).map((x) => x.blockedId), [b.id]);
+      assert.deepEqual(second.blocksBy(b.id), []);
+
+      // A file written before blocks existed has no such key at all.
+      const raw = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+      delete raw.blocks;
+      writeFileSync(path, JSON.stringify(raw), 'utf8');
+      const third = new CommunityStore(path);
+      assert.equal(third.blockedBetween(a.id, b.id), false);
+      assert.equal(third.userByHandle('blocker')?.id, a.id, 'the rest of the file still loads');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('blocks in one direction, refuses contact in both, and lifts cleanly', async () => {
+    const store = new CommunityStore(null);
+    const a = await seedUser(store, 'one');
+    const b = await seedUser(store, 'two');
+
+    assert.equal(store.blockedBetween(a.id, b.id), false);
+    const set = store.addBlock(a.id, b.id);
+    // The one record answers for both of them: a block that only ran the way
+    // it was set would leave the blocked person free to carry on.
+    assert.equal(store.blockedBetween(a.id, b.id), true);
+    assert.equal(store.blockedBetween(b.id, a.id), true);
+
+    assert.equal(store.addBlock(a.id, b.id).createdAt, set.createdAt, 'blocking twice keeps the first stamp');
+    assert.equal(store.blocksBy(a.id).length, 1, 'and does not duplicate the listing');
+
+    assert.equal(store.removeBlock(a.id, b.id), true);
+    assert.equal(store.removeBlock(a.id, b.id), false, 'nothing left to remove');
+    assert.equal(store.blockedBetween(a.id, b.id), false);
+    assert.deepEqual(store.blocksBy(a.id), []);
   });
 
   it('reports the last wave between two people, for the cooldown', async () => {

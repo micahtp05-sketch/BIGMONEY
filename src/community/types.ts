@@ -308,6 +308,31 @@ export interface ModerationCase {
   decisionReason: string;
 }
 
+/**
+ * One member deciding another may not reach them.
+ *
+ * A block governs **contact, not speech**. It closes the waves, the private
+ * meetup channel, the ability to say you are coming to the other's
+ * get-together, and the ability to write a new review of them. It does not
+ * touch a single thread or reply: the rooms stay public, and both people go on
+ * seeing what the other says in them.
+ *
+ * That line is deliberate and it cuts both ways. Hiding posts would let
+ * somebody block a checked electrician and quietly erase their answers from a
+ * trade room, and — worse — would hand anyone a way to talk about a person who
+ * cannot see it being done. What a member needs protecting from is being
+ * contacted, followed to their door, and rated; not from reading.
+ *
+ * Blocks are enforced in **both directions** from one record. If they only ran
+ * one way, blocking somebody would still leave them free to wave at you, which
+ * is the entire thing being asked for.
+ */
+export interface Block {
+  blockerId: string;
+  blockedId: string;
+  createdAt: number;
+}
+
 /** A nudge from one member to another. Public-by-design platform, private-ish nudge. */
 export interface Wave {
   id: string;
@@ -328,6 +353,7 @@ export interface CommunityData {
   threads: Thread[];
   replies: Reply[];
   waves: Wave[];
+  blocks: Block[];
   meetupMessages: MeetupMessage[];
   reviews: Review[];
   moderation: ModerationCase[];

@@ -149,6 +149,11 @@ listed at the top of the matching room automatically — "Gas engineer" lands in
 - **Presence and waves.** An opt-in *open to chat right now* flag puts you on the
   members page, and any member can send a wave — one per person per day, so it can
   never become a way to pester.
+- **Blocking.** Any member can stop another reaching them: waves, the private meetup
+  channel, RSVPs to each other's get-togethers, and new reviews all close, in both
+  directions. Posts and reviews already written stay exactly where they are, and a
+  block never puts anybody beyond moderation. See
+  [What a block does](#what-a-block-does-and-what-it-deliberately-does-not).
 - **Live updates.** New threads, replies, RSVPs and presence changes arrive over SSE.
 - **Moderation.** Anyone can report, with a reason. Three distinct reporters hide
   something automatically; a moderator then rules on it, and that ruling sticks. See
@@ -189,6 +194,8 @@ GET    /people/:handle/reviews      list + summary
 POST   /people/:handle/reviews      {kind, rating, body, threadId?}
 GET    /people/:handle/shared       what the viewer could write a checked review about
 DELETE /reviews/:id                 author only
+POST   /people/:handle/block        stop them reaching you   DELETE to lift it
+GET    /blocks                      who you have blocked. Only ever your own
 POST   /waves | GET /waves | POST /waves/read
 GET    /search?q=
 POST   /report                     {kind: thread|reply|message|review, id, reason?}
@@ -368,6 +375,40 @@ channels on. Everything here is in the open, and the one private-ish primitive �
 wave — carries a short note, is rate-limited to once per person per day, and cannot
 be replied to except in public.
 
+**What a block does, and what it deliberately does not.** Reporting content was never
+the same thing as stopping a person: you could object to something already said and
+still have no way to make somebody leave you alone. A block closes contact — waves, the
+private meetup channel, saying you are coming to a get-together the other hosts, and
+writing a review of each other — and it closes it **in both directions from one
+record**, because a block that only ran the way it was set would leave the blocked
+person free to carry on waving.
+
+It does not touch a single thread or reply. The rooms stay public and both people go on
+seeing what the other says in them. Hiding posts would let somebody block a checked
+electrician and quietly erase their answers from a trade room, and — worse — hand
+anyone a way to talk about a person who cannot see it being done. What a member needs
+protecting from is being contacted, followed to their door, and rated; not from
+reading.
+
+Two consequences follow from that line and are worth stating plainly. **A review
+already written survives the block**, because a review that vanished when its subject
+blocked its author would make blocking the cheapest way on the platform to clear a bad
+rating. And **a block never puts anybody beyond moderation**: reporting, rulings and
+the queue never consult it, so blocking the person you are about to report costs you
+nothing.
+
+Blocking withdraws any RSVP standing between the two, in either direction — a meetup
+has no location field, so being down as coming obliges the host to hand over an
+address, and a block the moment before somebody arrives at your door has to undo that.
+Only the host-to-guest relationship counts: two guests who fall out on a third
+person's meetup are both left where they are, because that meetup is not either of
+theirs to police. Saying you are no longer coming is never refused, blocked or not.
+
+The blocked person is not told, and the refusal they meet does not say who shut the
+door or distinguish a block from any other reason somebody cannot be reached. They do
+learn they cannot get through, which is the point; they do not get it confirmed that
+this particular person did it, which would be worth retaliating over.
+
 **Why the state layer is a JSON file.** Reads are map lookups; writes mutate memory
 and schedule a debounced atomic replace (write to a temp file, then rename), so a
 crash mid-write leaves the last good file rather than a truncated one. It is correct
@@ -378,10 +419,9 @@ for one process and honest about being so — the seam to swap for Postgres is
 reconnects on its own, needs no protocol upgrade in front of proxies, and adds no
 dependency.
 
-**Why no email address.** Nothing on Commons needs to reach a member anywhere else, so
-signup is a handle and a password. Passwords are scrypt with a per-user salt, verified
-in constant time; login says the same thing for a wrong password as for a handle that
-does not exist.
+**How passwords are held.** scrypt with a per-user salt, verified in constant time.
+Login says the same thing for a wrong password as for a handle that does not exist, so
+the form cannot be used to find out who has an account.
 
 
 ## Adding a price source
@@ -416,15 +456,27 @@ Prices are carried in **minor units** (cents) as integers throughout, so nothing
 - **Commons stores state in one JSON file in one process.** Correct and durable for a
   single instance; it does not survive being run behind more than one process, and it
   will not stay fast past tens of thousands of threads. `CommunityStore` is the seam.
-- **Commons has no email, so there is no password reset.** A forgotten password means a
-  new account, which is the honest consequence of not collecting an address.
-- **Moderation is community-only.** Three reports hide a post; nothing un-hides it,
-  because there is no moderator role or review queue yet.
+- **No code sender has ever made a live call.** Email and SMS adapters are written
+  against the documented APIs and tested against a stub, but the build container had no
+  outbound network. Until one is wired, the checks that stop somebody claiming an
+  address they do not own are not running. The console sender refuses to start under
+  `NODE_ENV=production`, so this fails loudly rather than quietly.
+- **Identity checking does not scale.** A moderator arranges to see something in
+  person. Fine for a street, not a city, and while the queue is unattended nobody new
+  can answer in a trade room.
+- **There are no notifications.** Ask a question, close the tab, and nothing tells you
+  it was answered.
+- **Private meetup channels cannot be moderated.** By design — nothing reaches a
+  moderator unless one of the two people reports it.
 - **SSE has no replay.** A client that loses its connection may miss events until its
   next navigation re-fetches; nothing is lost server-side, but the page can be briefly
   stale.
 - **Search is a substring scan over every thread.** Fine at this size, and the obvious
   next thing to replace.
+- **Nothing paginates.** Every list stops at 50 with no "show more".
+- **The service worker version is manual.** Change `public/commons.js` or
+  `public/commons.css` without bumping `SHELL_VERSION` in `public/sw.js` and returning
+  visitors keep the old file.
 - **Server-side refusal fallbacks are not wired up.** `identifyItem` handles `stop_reason: "refusal"` explicitly, but adding the server-side `fallbacks` parameter requires the `client.beta.messages` path, which does not currently expose the typed `.parse()` helper this code uses for structured output.
 
 ## Layout

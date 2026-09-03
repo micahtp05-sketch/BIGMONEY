@@ -1188,11 +1188,47 @@ function helloButton(person) {
   });
 }
 
+/**
+ * Shut, or reopen, one person's way of reaching you.
+ *
+ * The wording spells out what a block does and — just as important — what it
+ * does not, because the two are easy to confuse. It stops contact. It does not
+ * take down anything either of them has posted, and it does not remove a review
+ * already written.
+ */
+function blockButton(person, blocked) {
+  return el('button', {
+    class: 'quiet',
+    style: blocked ? 'margin-top:10px' : 'margin-top:10px; border-color:var(--danger); color:var(--danger)',
+    text: blocked ? `Unblock ${person.displayName}` : `Block ${person.displayName}`,
+    onclick: async () => {
+      const yes = await askDialog({
+        title: blocked ? `Unblock ${person.displayName}?` : `Block ${person.displayName}?`,
+        help: blocked
+          ? 'They will be able to say hello, come to your get-togethers, and message you about them again.'
+          : 'They will not be able to say hello to you, message you, come to your get-togethers, or review you — and nor will you to them. Their posts and any review already written stay where they are. They are not told.',
+        confirmText: blocked ? 'Unblock' : 'Block',
+        danger: !blocked,
+      });
+      if (!yes) return;
+      try {
+        const path = `/people/${encodeURIComponent(person.handle)}/block`;
+        const result = await api(path, { method: blocked ? 'DELETE' : 'POST' });
+        if (blocked) say('Unblocked.');
+        else if (result.rsvpsWithdrawn > 0) say('Blocked, and you are no longer down as coming to each other\'s get-togethers.');
+        else say('Blocked.');
+        route();
+      } catch (error) { say(error.message); }
+    },
+  });
+}
+
 async function viewPerson(handle) {
-  const { user, threads, summary, reviews } = await api(`/people/${encodeURIComponent(handle)}`);
+  const { user, threads, summary, reviews, viewerBlocked } = await api(`/people/${encodeURIComponent(handle)}`);
   const { viewerHasReviewed } = state.me
     ? await api(`/people/${encodeURIComponent(handle)}/reviews`).catch(() => ({ viewerHasReviewed: false }))
     : { viewerHasReviewed: false };
+  const mine = state.me && state.me.id === user.id;
   show(
     el('h1', { text: user.displayName }),
     el('div', { class: 'card' },
@@ -1206,7 +1242,12 @@ async function viewPerson(handle) {
             ...user.skills.map((s) => el('span', { class: 'tag knows', text: s })))
         : null,
       user.helpfulCount ? el('p', { class: 'hint', style: 'margin:0 0 10px', text: `${user.helpfulCount} answers that worked.` }) : null,
-      state.me && state.me.id !== user.id ? helloButton(user) : null,
+      state.me && !mine && !viewerBlocked ? helloButton(user) : null,
+      viewerBlocked
+        ? el('p', { class: 'warnbox', style: 'margin:10px 0 0',
+            text: 'You have blocked them. They cannot say hello, message you, come to your get-togethers, or review you. Their posts are still here.' })
+        : null,
+      state.me && !mine ? blockButton(user, viewerBlocked) : null,
       state.me && state.me.role === 'moderator' && state.me.id !== user.id
         ? el('button', {
             class: 'quiet', style: 'margin-top:10px',
@@ -1236,7 +1277,7 @@ async function viewPerson(handle) {
     reviews.length
       ? el('div', { class: 'stack' }, ...reviews.map(reviewCard))
       : el('p', { class: 'hint', text: 'Nobody has reviewed them yet.' }),
-    reviewForm(user, viewerHasReviewed),
+    viewerBlocked ? null : reviewForm(user, viewerHasReviewed),
     el('h2', { text: 'Their posts' }),
     threads.length ? el('div', {}, ...threads.map(postCard)) : el('p', { class: 'hint', text: 'Nothing yet.' }),
   );
@@ -1309,6 +1350,7 @@ async function viewYou() {
       el('div', { class: 'row' }, save), note,
     ),
     accountPanel(),
+    await blockedPanel(),
     await myModeration(),
   );
 }
@@ -1572,6 +1614,42 @@ function decidedCard(item) {
  * Contact details appear here and nowhere else — no other member ever sees an
  * email address or a phone number through any route.
  */
+/**
+ * Everybody the signed-in member has blocked, and a way back.
+ *
+ * A block that cannot be found again is a trap: people block in a bad moment
+ * and want to undo it later, and without a list the only route back is
+ * remembering a handle. Nothing here is visible to anybody else.
+ */
+async function blockedPanel() {
+  let blocks;
+  try {
+    ({ blocks } = await api('/blocks'));
+  } catch { return null; }
+  if (!blocks.length) return null;
+
+  return el('div', { class: 'card' },
+    el('h2', { style: 'margin-top:0', text: blocks.length === 1 ? '1 person you have blocked' : `${blocks.length} people you have blocked` }),
+    el('p', { class: 'hint', text: 'They cannot reach you and you cannot reach them. They are not told.' }),
+    el('div', { class: 'stack' }, ...blocks.map(({ person, createdAt }) =>
+      el('div', { class: 'row', style: 'gap:10px; justify-content:space-between; padding:8px 0; border-top:1px solid var(--border)' },
+        el('div', {},
+          el('a', { href: `#/u/${encodeURIComponent(person.handle)}`, text: person.displayName }),
+          el('p', { class: 'hint', style: 'margin:2px 0 0', text: `Blocked ${ago(createdAt)}` })),
+        el('button', {
+          class: 'quiet', text: 'Unblock',
+          onclick: async () => {
+            try {
+              await api(`/people/${encodeURIComponent(person.handle)}/block`, { method: 'DELETE' });
+              say('Unblocked.');
+              route();
+            } catch (error) { say(error.message); }
+          },
+        }),
+      ))),
+  );
+}
+
 function accountPanel() {
   const a = state.account;
   if (!a) return null;

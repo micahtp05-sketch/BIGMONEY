@@ -1588,3 +1588,327 @@ describe('anti-spam limits', () => {
     }
   });
 });
+
+describe('blocking', () => {
+  let app: FastifyInstance;
+
+  before(async () => { app = await buildApp(); });
+  after(async () => { await app.close(); });
+
+  const block = (who: { cookie: string }, handle: string) =>
+    app.inject({ method: 'POST', url: `/api/community/people/${handle}/block`, headers: asUser(who.cookie) });
+
+  const unblock = (who: { cookie: string }, handle: string) =>
+    app.inject({ method: 'DELETE', url: `/api/community/people/${handle}/block`, headers: asUser(who.cookie) });
+
+  const wave = (who: { cookie: string }, toUserId: string) =>
+    app.inject({
+      method: 'POST', url: '/api/community/waves', headers: asUser(who.cookie),
+      payload: { toUserId, note: 'hello' },
+    });
+
+  /** A meetup its host is running, and a guest who has said they are coming. */
+  async function meetup(host: { cookie: string }, guest: { cookie: string }) {
+    const created = await app.inject({
+      method: 'POST', url: '/api/community/channels/meetups/threads', headers: asUser(host.cookie),
+      payload: {
+        title: 'Saturday coffee', body: 'Anyone welcome.',
+        meetup: { startsAt: Date.now() + 86_400_000, capacity: 0 },
+      },
+    });
+    assert.equal(created.statusCode, 201, created.body);
+    const thread = created.json().thread;
+    const rsvp = await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/rsvp`, headers: asUser(guest.cookie),
+    });
+    assert.equal(rsvp.statusCode, 200, rsvp.body);
+    return thread;
+  }
+
+  it('stops a wave in both directions from one record', async () => {
+    const ann = await signUp(app, 'blockann');
+    const bert = await signUp(app, 'blockbert');
+
+    assert.equal((await wave(bert, ann.user.id)).statusCode, 201, 'contact is open to begin with');
+
+    assert.equal((await block(ann, 'blockbert')).statusCode, 200);
+
+    // The person who set it cannot reach through it either — a block is not a
+    // one-way mute that leaves the other free to keep waving.
+    assert.equal((await wave(bert, ann.user.id)).statusCode, 403);
+    assert.equal((await wave(ann, bert.user.id)).statusCode, 403);
+  });
+
+  it('does not tell the blocked person who shut the door', async () => {
+    const cara = await signUp(app, 'blockcara');
+    const dev = await signUp(app, 'blockdev');
+    await block(cara, 'blockdev');
+
+    const refused = await wave(dev, cara.user.id);
+    assert.equal(refused.statusCode, 403);
+    const message = refused.json().error as string;
+    assert.equal(message.toLowerCase().includes('block'), false, message);
+    assert.equal(message.includes('blockcara'), false, message);
+
+    // And the profile never reports somebody else's block back to its subject.
+    const profile = await app.inject({
+      method: 'GET', url: '/api/community/people/blockcara', headers: asUser(dev.cookie),
+    });
+    assert.equal(profile.json().viewerBlocked, false);
+  });
+
+  it('tells the blocker about their own block, so the button reads right', async () => {
+    const eve = await signUp(app, 'blockeve');
+    await signUp(app, 'blockfinn');
+    await block(eve, 'blockfinn');
+
+    const seen = await app.inject({
+      method: 'GET', url: '/api/community/people/blockfinn', headers: asUser(eve.cookie),
+    });
+    assert.equal(seen.json().viewerBlocked, true);
+
+    const list = await app.inject({ method: 'GET', url: '/api/community/blocks', headers: asUser(eve.cookie) });
+    assert.deepEqual(list.json().blocks.map((b: { person: { handle: string } }) => b.person.handle), ['blockfinn']);
+  });
+
+  it('withdraws an RSVP that stands between them, and refuses a new one', async () => {
+    const host = await signUp(app, 'blockhost');
+    await verifyIdentity(app, host);
+    const guest = await signUp(app, 'blockguest');
+    const thread = await meetup(host, guest);
+
+    const before = await app.inject({ method: 'GET', url: `/api/community/threads/${thread.id}` });
+    assert.equal(before.json().thread.meetup.rsvps.length, 2, 'host plus the guest');
+
+    const done = await block(host, 'blockguest');
+    assert.equal(done.json().rsvpsWithdrawn, 1);
+
+    const after = await app.inject({ method: 'GET', url: `/api/community/threads/${thread.id}` });
+    assert.deepEqual(after.json().thread.meetup.rsvps, [host.user.id], 'only the host is left');
+
+    // And they cannot simply say they are coming again.
+    const again = await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/rsvp`, headers: asUser(guest.cookie),
+    });
+    assert.equal(again.statusCode, 403);
+  });
+
+  it('leaves two guests blocking each other on a third party\'s meetup', async () => {
+    const host = await signUp(app, 'blockhost2');
+    await verifyIdentity(app, host);
+    const one = await signUp(app, 'blockguest2');
+    const two = await signUp(app, 'blockguest2b');
+    const thread = await meetup(host, one);
+    await app.inject({ method: 'POST', url: `/api/community/threads/${thread.id}/rsvp`, headers: asUser(two.cookie) });
+
+    // Neither of them hosts it, so neither owes the other an address and the
+    // meetup is not theirs to police. Nobody is thrown off somebody else's
+    // get-together because two of the guests fell out.
+    const done = await block(one, 'blockguest2b');
+    assert.equal(done.json().rsvpsWithdrawn, 0);
+    const after = await app.inject({ method: 'GET', url: `/api/community/threads/${thread.id}` });
+    assert.equal(after.json().thread.meetup.rsvps.length, 3);
+
+    // And with a block standing, saying you are no longer coming still works —
+    // nobody is trapped as "coming" to something they cannot leave.
+    const left = await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/rsvp`, headers: asUser(two.cookie),
+    });
+    assert.equal(left.statusCode, 200, left.body);
+    assert.equal(left.json().viewerRsvpd, false);
+    const finally_ = await app.inject({ method: 'GET', url: `/api/community/threads/${thread.id}` });
+    assert.equal(finally_.json().thread.meetup.rsvps.includes(two.user.id), false);
+  });
+
+  it('shuts the private meetup channel', async () => {
+    const host = await signUp(app, 'blockhost3');
+    await verifyIdentity(app, host);
+    const guest = await signUp(app, 'blockguest3');
+    const thread = await meetup(host, guest);
+
+    const opening = await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/messages`, headers: asUser(host.cookie),
+      payload: { body: 'It is 14 Mill Lane, the blue door.', guest: guest.user.id },
+    });
+    assert.equal(opening.statusCode, 201, 'the channel works before the block');
+
+    await block(guest, 'blockhost3');
+
+    const shut = await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/messages`, headers: asUser(host.cookie),
+      payload: { body: 'Are you still coming?', guest: guest.user.id },
+    });
+    assert.equal(shut.statusCode, 403);
+
+    const backAtThem = await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/messages`, headers: asUser(guest.cookie),
+      payload: { body: 'Leave me alone.' },
+    });
+    assert.equal(backAtThem.statusCode, 403);
+
+    // What was already said stays readable: it is the only evidence either of
+    // them has if it needs reporting.
+    const history = await app.inject({
+      method: 'GET', url: `/api/community/threads/${thread.id}/messages`, headers: asUser(guest.cookie),
+    });
+    assert.equal(history.statusCode, 200);
+    assert.equal(history.json().messages.length, 1);
+  });
+
+  it('refuses a new review but never removes one already written', async () => {
+    const pro = await signUp(app, 'blockpro');
+    await verifyIdentity(app, pro);
+    const critic = await signUp(app, 'blockcritic');
+
+    const written = await app.inject({
+      method: 'POST', url: '/api/community/people/blockpro/reviews', headers: asUser(critic.cookie),
+      payload: { kind: 'hired', rating: 1, body: 'Did not turn up, twice.' },
+    });
+    assert.equal(written.statusCode, 201, written.body);
+
+    // The subject blocks their critic. If that cleared the review, blocking
+    // would be the cheapest way on the platform to erase a bad rating.
+    await block(pro, 'blockcritic');
+
+    const reviews = await app.inject({ method: 'GET', url: '/api/community/people/blockpro/reviews' });
+    assert.equal(reviews.json().reviews.length, 1, 'the review survives the block');
+    assert.equal(reviews.json().summary.count, 1);
+
+    // A second person is still refused a *new* one while blocked.
+    const other = await signUp(app, 'blockother');
+    await block(pro, 'blockother');
+    const refused = await app.inject({
+      method: 'POST', url: '/api/community/people/blockpro/reviews', headers: asUser(other.cookie),
+      payload: { kind: 'hired', rating: 1, body: 'Also bad.' },
+    });
+    assert.equal(refused.statusCode, 403);
+  });
+
+  it('leaves every room post visible to both of them', async () => {
+    const asker = await signUp(app, 'blockasker');
+    const sparks = await signUp(app, 'blocksparks');
+    await verifyIdentity(app, sparks);
+
+    const posted = await app.inject({
+      method: 'POST', url: '/api/community/channels/electricians/threads', headers: asUser(asker.cookie),
+      payload: { title: 'Fuse board keeps tripping', body: 'Every time the kettle goes on.' },
+    });
+    const thread = posted.json().thread;
+    const answered = await app.inject({
+      method: 'POST', url: `/api/community/threads/${thread.id}/replies`, headers: asUser(sparks.cookie),
+      payload: { body: 'Sounds like the kettle element. Try another socket first.' },
+    });
+    assert.equal(answered.statusCode, 201, answered.body);
+
+    await block(asker, 'blocksparks');
+
+    // Blocking governs contact, not speech. The answer is still there for the
+    // person who blocked, and the room is unchanged for everybody else.
+    const read = await app.inject({
+      method: 'GET', url: `/api/community/threads/${thread.id}`, headers: asUser(asker.cookie),
+    });
+    assert.equal(read.json().replies.length, 1);
+    assert.equal(read.json().replies[0].author.handle, 'blocksparks');
+
+    const stranger = await app.inject({ method: 'GET', url: `/api/community/threads/${thread.id}` });
+    assert.equal(stranger.json().replies.length, 1);
+  });
+
+  it('drops each out of the other\'s directory, but leaves the profile reachable', async () => {
+    const gil = await signUp(app, 'blockgil');
+    const hana = await signUp(app, 'blockhana');
+    await block(gil, 'blockhana');
+
+    const gilSees = await app.inject({ method: 'GET', url: '/api/community/people', headers: asUser(gil.cookie) });
+    const hanaSees = await app.inject({ method: 'GET', url: '/api/community/people', headers: asUser(hana.cookie) });
+    const handles = (res: { json: () => { people: { handle: string }[] } }) =>
+      res.json().people.map((p) => p.handle);
+    assert.equal(handles(gilSees).includes('blockhana'), false);
+    assert.equal(handles(hanaSees).includes('blockgil'), false, 'symmetric, so neither keeps browsing to the other');
+
+    // A signed-out visitor sees both: a block is between two people, not a
+    // removal from the site.
+    const anyone = await app.inject({ method: 'GET', url: '/api/community/people' });
+    assert.equal(handles(anyone).includes('blockhana'), true);
+
+    // And the profile itself still answers, or hiding it would tell the
+    // blocked person exactly what had happened.
+    const profile = await app.inject({
+      method: 'GET', url: '/api/community/people/blockgil', headers: asUser(hana.cookie),
+    });
+    assert.equal(profile.statusCode, 200);
+  });
+
+  it('offers nothing to review while contact is closed', async () => {
+    const asker = await signUp(app, 'blockshared');
+    const helper = await signUp(app, 'blockhelper');
+    await verifyIdentity(app, helper);
+
+    const posted = await app.inject({
+      method: 'POST', url: '/api/community/channels/plumbers/threads', headers: asUser(asker.cookie),
+      payload: { title: 'Dripping tap', body: 'All night.' },
+    });
+    await app.inject({
+      method: 'POST', url: `/api/community/threads/${posted.json().thread.id}/replies`, headers: asUser(helper.cookie),
+      payload: { body: 'Replace the washer — twenty minutes and about a pound.' },
+    });
+
+    const before = await app.inject({
+      method: 'GET', url: '/api/community/people/blockhelper/shared', headers: asUser(asker.cookie),
+    });
+    assert.equal(before.json().shared.length, 1);
+
+    await block(asker, 'blockhelper');
+    const after = await app.inject({
+      method: 'GET', url: '/api/community/people/blockhelper/shared', headers: asUser(asker.cookie),
+    });
+    assert.deepEqual(after.json().shared, []);
+  });
+
+  it('unblocks, and blocking twice is not an error', async () => {
+    const ivy = await signUp(app, 'blockivy');
+    const jon = await signUp(app, 'blockjon');
+
+    assert.equal((await block(ivy, 'blockjon')).statusCode, 200);
+    assert.equal((await block(ivy, 'blockjon')).statusCode, 200, 'idempotent');
+    assert.equal((await wave(jon, ivy.user.id)).statusCode, 403);
+
+    assert.equal((await unblock(ivy, 'blockjon')).statusCode, 200);
+    assert.equal((await unblock(ivy, 'blockjon')).statusCode, 200, 'unblocking nothing is fine');
+    assert.equal((await wave(jon, ivy.user.id)).statusCode, 201, 'contact reopens');
+  });
+
+  it('refuses to block yourself, or a member who does not exist', async () => {
+    const kit = await signUp(app, 'blockkit');
+    assert.equal((await block(kit, 'blockkit')).statusCode, 400);
+    assert.equal((await block(kit, 'nobody-at-all')).statusCode, 404);
+  });
+
+  it('needs somebody signed in', async () => {
+    await signUp(app, 'blocklou');
+    const anon = await app.inject({ method: 'POST', url: '/api/community/people/blocklou/block' });
+    assert.equal(anon.statusCode, 401);
+    const list = await app.inject({ method: 'GET', url: '/api/community/blocks' });
+    assert.equal(list.statusCode, 401);
+  });
+
+  it('does not let a block put anybody beyond moderation', async () => {
+    const nuisance = await signUp(app, 'blocknuisance');
+    const target = await signUp(app, 'blocktarget');
+
+    const posted = await app.inject({
+      method: 'POST', url: '/api/community/channels/chat/threads', headers: asUser(nuisance.cookie),
+      payload: { title: 'A thing worth reporting', body: 'Unpleasant.' },
+    });
+    const threadId = posted.json().thread.id;
+
+    // Blocking the person you are about to report must not cost you the
+    // ability to report them.
+    await block(target, 'blocknuisance');
+    const reported = await app.inject({
+      method: 'POST', url: '/api/community/report', headers: asUser(target.cookie),
+      payload: { kind: 'thread', id: threadId, reason: 'Abusive.' },
+    });
+    assert.equal(reported.statusCode, 200, reported.body);
+  });
+});
