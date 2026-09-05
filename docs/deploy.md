@@ -34,6 +34,16 @@ SMS_FROM=+15550001111
 SMS_ACCOUNT_ID=AC...                     # Twilio only
 ```
 
+Push notifications — the thing that reaches somebody after they close the tab — need one
+key pair. `npm run push:keys` prints it; paste the three lines in and keep the private key
+private. Changing the pair later means everyone turns notifications on again.
+
+```bash
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+VAPID_SUBJECT=mailto:you@yourdomain.org
+```
+
 The estimator at `/estimate/` additionally needs `ANTHROPIC_API_KEY`. Commons does not;
 without a key the estimator page reports that it is not configured and everything
 else works.
@@ -72,6 +82,8 @@ own edge.
 3. You are a moderator: the **Reports** tab is there. Ask for an identity check on your
    own page and approve it, so there is one checked professional to start with.
 4. Open `/welcome/` on a phone and add it to the home screen.
+5. On your own page, **Turn on notifications**, then **Send a test**. That is the first
+   live push; the browser shows it within a second or the card says why not.
 
 ## 5. Backups and moving house
 

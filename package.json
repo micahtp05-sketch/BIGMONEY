@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "node --experimental-strip-types --watch src/server.ts",
     "start": "node --experimental-strip-types src/server.ts",
+    "pretest": "node scripts/app-sync.mjs",
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "test:e2e": "node test/browser/run.mjs",
@@ -19,6 +20,7 @@
     "test:cinematic": "node test/browser/cinematic.mjs",
     "seed:demo": "node scripts/seed-demo.mjs",
     "icons": "node scripts/make-icons.mjs",
+    "push:keys": "node scripts/push-keys.mjs",
     "app:sync": "node scripts/app-sync.mjs",
     "app:android": "npx cap open android",
     "app:ios": "npx cap open ios",
@@ -29,6 +31,7 @@
     "@fastify/multipart": "^9.0.1",
     "@fastify/static": "^10.1.3",
     "fastify": "^5.2.0",
+    "web-push": "^3.6.7",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -37,6 +40,7 @@
     "@capacitor/core": "^8.5.1",
     "@capacitor/ios": "^8.5.1",
     "@types/node": "^22.10.2",
+    "@types/web-push": "^3.6.4",
     "playwright": "^1.62.1",
     "typescript": "^5.7.2"
   },

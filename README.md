@@ -38,8 +38,8 @@ members (`SEED_ALLOW_REMOTE=1` / `SEED_FORCE=1` override; read what they say fir
 ```bash
 npm run test:all          # everything below, in order
 npm run typecheck
-npm test                  # 266 unit and API tests. No network, no browser.
-npm run test:e2e          # 37 checks in a real browser: interface, install, cinematic layer
+npm test                  # 294 unit and API tests. No network, no browser.
+npm run test:e2e          # 39 checks in a real browser: interface, install, cinematic layer, notifications
 ```
 
 `npm test` runs offline with nothing beyond what is in `package.json`. It includes 106
@@ -108,6 +108,11 @@ listed at the top of the matching room automatically — "Gas engineer" lands in
   lights up when somebody actually answers. Light by default, dark following the device,
   one tap to switch. Every text pair is computed at 7:1 or better by a test that reads
   the shipped stylesheet. See [What the look is for](#what-the-look-is-for).
+- **Notifications.** Turned on from your own page, per device. Four moments and only
+  those: somebody answered your question, somebody said your answer worked, somebody said
+  hello, a message about a get-together arrived. Never room chatter, never across a block,
+  and never a private message's text. Web Push, so it reaches the website and the installed
+  app alike; see [What a notification carries](#what-a-notification-carries).
 - **Live updates.** New threads, replies, RSVPs and presence changes arrive over SSE.
 - **Moderation.** Anyone can report, with a reason. Three distinct reporters hide
   something automatically; a moderator then rules on it, and that ruling sticks. See
@@ -395,6 +400,18 @@ hide anything. `test/contrast.test.ts` reads the shipped stylesheet — not a co
 values — and fails on any body pair under 7:1, any drift between the two dark blocks, any
 font under 14 px, or any `outline: none`.
 
+**What a notification carries.** A name, a verb, a post's title and a link — never
+more. Four moments send one: somebody answered your question, somebody said your answer
+worked, somebody said hello, somebody sent you a message about a get-together. Nothing
+sends for ordinary posts in a room, nothing crosses a block (a block closes contact, and a
+notification is contact), and a message about a get-together says that one arrived, never
+what it says — the whole design keeps where somebody lives off every screen but the two
+people's own, and a lock screen is not one of those. Subscriptions are per browser and
+move with whoever is signed in on it; one the push service reports gone is deleted on
+sight. `web-push` is the first runtime dependency taken beyond Fastify, Zod and the
+Anthropic SDK, chosen by the owner over a week of per-platform native push because Web
+Push reaches the website and the installed app alike.
+
 **Why the state layer is a JSON file.** Reads are map lookups; writes mutate memory
 and schedule a debounced atomic replace (write to a temp file, then rename), so a
 crash mid-write leaves the last good file rather than a truncated one. It is correct
@@ -424,6 +441,7 @@ the form cannot be used to find out who has an account.
 | `COMMUNITY_MODERATORS` | — | Handles that are moderators from the start, comma separated. |
 | `EMAIL_PROVIDER` | — | `resend`, `postmark` or `sendgrid`. With `EMAIL_API_KEY` and `EMAIL_FROM`. |
 | `SMS_PROVIDER` | — | `twilio` or `messagebird`. With `SMS_API_KEY`, `SMS_FROM`, and `SMS_ACCOUNT_ID` for Twilio. |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | — | Push notifications. `npm run push:keys` prints a pair; unset means the button says it is not set up. |
 
 ## Deploying
 

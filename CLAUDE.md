@@ -37,7 +37,8 @@ passing test. When the client changes, look at it.
 ## Constraints that have held throughout
 
 - Node 22 with `--experimental-strip-types`. No build step. No framework.
-- No new runtime dependencies. `playwright` is a devDependency for the browser suites only.
+- Runtime dependencies are Fastify, Zod, the Anthropic SDK and — by the owner's decision —
+  `web-push`. Nothing else. `playwright` and Capacitor are devDependencies.
 - The client is plain ES modules in `public/commons.js`; the design system is
   `public/commons.css`; the header sky is `public/ambient.js`. The 3D landing scene is
   hand-written canvas.
@@ -55,7 +56,7 @@ passing test. When the client changes, look at it.
 
 ```
 src/server.ts             Fastify wiring for both surfaces; buildServer() is importable
-src/community/            Commons: types, store, auth, routes, views, verify, senders/
+src/community/            Commons: types, store, auth, routes, views, verify, push, senders/
 src/{vision,aggregate,sources}  The estimator
 public/                   The app, landing page, estimator page, icons, fonts
 test/*.test.ts            Offline suites (node:test)

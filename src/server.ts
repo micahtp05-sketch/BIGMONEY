@@ -5,6 +5,7 @@ import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import { aggregate } from './aggregate.ts';
 import { communityRoutes } from './community/routes.ts';
+import { pushFromEnv } from './community/push.ts';
 import { sendersFromEnv } from './community/senders/index.ts';
 import { gatherListings, sourcesFromEnv } from './sources/index.ts';
 import type { EstimateResponse } from './types.ts';
@@ -30,7 +31,7 @@ function signupsPerHour(): number | undefined {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
-export function buildServer() {
+export async function buildServer() {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } });
   const anthropic = new Anthropic();
   const sources = sourcesFromEnv();
@@ -43,6 +44,8 @@ export function buildServer() {
   // up is worse than one that refuses to boot: the failure surfaces at 3am, to
   // a member, instead of at deploy time, to whoever deployed it.
   const sender = sendersFromEnv();
+  // Push is optional: unset keys mean the client is told it is off, not a refusal.
+  const push = await pushFromEnv();
   if (!sender && process.env.NODE_ENV === 'production') {
     throw new Error(
       'No way to send one-time codes is configured, so nobody could confirm an ' +
@@ -59,6 +62,7 @@ export function buildServer() {
       // Real providers when configured; otherwise the console sender, which
       // logs codes in development and refuses to start in production.
       sender: sender ?? undefined,
+      push: push ?? undefined,
     }),
     { prefix: '/api/community' },
   );
@@ -131,7 +135,7 @@ export function buildServer() {
 
 // Only listen when run directly, so tests can import buildServer().
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const app = buildServer();
+  const app = await buildServer();
   const port = Number(process.env.PORT ?? 3000);
   app.listen({ port, host: '0.0.0.0' }).catch((err) => {
     app.log.error(err);

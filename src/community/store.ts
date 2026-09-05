@@ -10,6 +10,7 @@ import type {
   MeetupMessage,
   ModerationCase,
   PublicUser,
+  PushSubscriptionRecord,
   Reply,
   Review,
   Session,
@@ -29,6 +30,7 @@ const EMPTY: CommunityData = {
   replies: [],
   waves: [],
   blocks: [],
+  pushSubscriptions: [],
   meetupMessages: [],
   reviews: [],
   moderation: [],
@@ -54,6 +56,8 @@ export class CommunityStore {
   readonly waves = new Map<string, Wave>();
   /** Keyed `blockerId:blockedId` — one record per direction a person set. */
   readonly blocks = new Map<string, Block>();
+  /** Keyed by endpoint — one record per browser, whoever it belongs to now. */
+  readonly pushSubscriptions = new Map<string, PushSubscriptionRecord>();
   readonly meetupMessages = new Map<string, MeetupMessage>();
   readonly reviews = new Map<string, Review>();
   readonly moderation = new Map<string, ModerationCase>();
@@ -75,6 +79,8 @@ export class CommunityStore {
   private readonly reviewsBySubject = new Map<string, string[]>();
   /** blockerId -> the ids they have blocked, so listing needs no scan. */
   private readonly blocksByBlocker = new Map<string, string[]>();
+  /** userId -> endpoints, so a send needs no scan. */
+  private readonly pushByUser = new Map<string, Set<string>>();
 
   private readonly path: string | null;
   private flushTimer: NodeJS.Timeout | null = null;
@@ -105,6 +111,7 @@ export class CommunityStore {
     for (const r of data.replies) this.indexReply(r);
     for (const w of data.waves) this.waves.set(w.id, w);
     for (const b of data.blocks ?? []) this.indexBlock(b);
+    for (const p of data.pushSubscriptions ?? []) this.indexPush(p);
     for (const m of data.meetupMessages ?? []) this.indexMeetupMessage(m);
     for (const r of data.reviews ?? []) this.indexReview(r);
     for (const c of data.moderation ?? []) this.moderation.set(c.id, c);
@@ -137,6 +144,7 @@ export class CommunityStore {
       replies: [...this.replies.values()],
       waves: [...this.waves.values()],
       blocks: [...this.blocks.values()],
+      pushSubscriptions: [...this.pushSubscriptions.values()],
       meetupMessages: [...this.meetupMessages.values()],
       reviews: [...this.reviews.values()],
       moderation: [...this.moderation.values()],
@@ -405,6 +413,44 @@ export class CommunityStore {
       .map((id) => this.blocks.get(CommunityStore.blockKey(blockerId, id)))
       .filter((b): b is Block => b !== undefined)
       .sort((x, y) => y.createdAt - x.createdAt);
+  }
+
+  // -------------------------------------------------------- push subscriptions
+
+  private indexPush(record: PushSubscriptionRecord): void {
+    this.pushSubscriptions.set(record.endpoint, record);
+    let set = this.pushByUser.get(record.userId);
+    if (!set) { set = new Set(); this.pushByUser.set(record.userId, set); }
+    set.add(record.endpoint);
+  }
+
+  /**
+   * Keep one browser's subscription. An endpoint already known moves to the
+   * member who just claimed it — the same browser, a different sign-in.
+   */
+  addPushSubscription(record: PushSubscriptionRecord): PushSubscriptionRecord {
+    const existing = this.pushSubscriptions.get(record.endpoint);
+    if (existing) this.pushByUser.get(existing.userId)?.delete(existing.endpoint);
+    this.indexPush(record);
+    this.touch();
+    return record;
+  }
+
+  /** Returns whether there was one to remove. */
+  removePushSubscription(endpoint: string): boolean {
+    const existing = this.pushSubscriptions.get(endpoint);
+    if (!existing) return false;
+    this.pushSubscriptions.delete(endpoint);
+    this.pushByUser.get(existing.userId)?.delete(endpoint);
+    this.touch();
+    return true;
+  }
+
+  /** Every browser one member has turned notifications on in. */
+  pushSubscriptionsFor(userId: string): PushSubscriptionRecord[] {
+    return [...(this.pushByUser.get(userId) ?? [])]
+      .map((e) => this.pushSubscriptions.get(e))
+      .filter((r): r is PushSubscriptionRecord => r !== undefined);
   }
 
   // ------------------------------------------------------------ moderation

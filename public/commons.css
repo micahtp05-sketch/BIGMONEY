@@ -194,6 +194,9 @@ html[data-room="social"] { --accent: var(--social); --accent-hover: var(--social
 
 /* -------------------------------------------------------------------- base */
 * { box-sizing: border-box; }
+/* An author display value on buttons and cards would otherwise beat the
+   browser's own hiding of [hidden]; say it once, for everything. */
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;

@@ -6,11 +6,14 @@
  *      is cached, so a member on a bus sees the app rather than a browser error.
  *   2. Never serve stale community content. Posts and people always come from
  *      the network; only the shell is cached.
+ *   3. Show a push notification when the server sends one, and open the right
+ *      page when it is tapped. The server never sends more than a name, a
+ *      verb, a title and a link.
  *
  * Bump SHELL_VERSION whenever commons.js or commons.css changes, or returning
  * members keep the old file until their cache is evicted.
  */
-const SHELL_VERSION = 'commons-shell-v6';
+const SHELL_VERSION = 'commons-shell-v8';
 
 const SHELL = [
   '/',
@@ -89,6 +92,34 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() => hit);
       return hit ?? fresh;
+    }),
+  );
+});
+
+// ---------------------------------------------------------------- push
+
+self.addEventListener('push', (event) => {
+  let data = { title: 'Commons', body: '', url: '/', tag: undefined };
+  try { data = { ...data, ...event.data.json() }; } catch { /* a bare push with no body */ }
+  event.waitUntil(self.registration.showNotification(data.title, {
+    body: data.body,
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    tag: data.tag,
+    renotify: Boolean(data.tag),
+    data: { url: data.url },
+  }));
+});
+
+// Tapping it focuses an open Commons window on that page, or opens one.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = new URL(event.notification.data?.url ?? '/', self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+      const same = wins.find((w) => new URL(w.url).origin === self.location.origin);
+      if (same) return same.navigate(url).then((w) => w?.focus());
+      return self.clients.openWindow(url);
     }),
   );
 });

@@ -34,9 +34,9 @@ describe('buildServer() and the environment', () => {
     }
   });
 
-  it('refuses to start in production with no way to send codes', () => {
+  it('refuses to start in production with no way to send codes', async () => {
     setEnv({ NODE_ENV: 'production' });
-    assert.throws(() => buildServer(), /No way to send one-time codes/);
+    await assert.rejects(buildServer(), /No way to send one-time codes/);
   });
 
   it('starts in production once an email provider is configured, and answers health', async () => {
@@ -45,7 +45,7 @@ describe('buildServer() and the environment', () => {
       EMAIL_PROVIDER: 'postmark', EMAIL_API_KEY: 'test-key', EMAIL_FROM: 'Commons <hello@example.test>',
       COMMUNITY_MODERATORS: 'firstmod',
     });
-    const app = buildServer();
+    const app = await buildServer();
     try {
       await app.ready();
       const res = await app.inject({ method: 'GET', url: '/api/community/health' });
@@ -68,7 +68,7 @@ describe('buildServer() and the environment', () => {
 
   it('starts in development with no provider at all, logging codes instead', async () => {
     setEnv({ NODE_ENV: 'development' });
-    const app = buildServer();
+    const app = await buildServer();
     try {
       await app.ready();
       const res = await app.inject({ method: 'GET', url: '/api/community/health' });
@@ -78,8 +78,8 @@ describe('buildServer() and the environment', () => {
     }
   });
 
-  it('rejects a half-configured provider loudly rather than booting without it', () => {
+  it('rejects a half-configured provider loudly rather than booting without it', async () => {
     setEnv({ NODE_ENV: 'production', EMAIL_PROVIDER: 'resend' });
-    assert.throws(() => buildServer(), /EMAIL_API_KEY or EMAIL_FROM is missing/);
+    await assert.rejects(buildServer(), /EMAIL_API_KEY or EMAIL_FROM is missing/);
   });
 });

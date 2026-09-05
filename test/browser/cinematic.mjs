@@ -258,6 +258,48 @@ await step('exactly one h1 on every route, and .mark spans are aria-hidden', asy
   await ctx.close();
 });
 
+await step('notifications: the card says the true state and never a raw error', async () => {
+  // No permission granted: the browser answers "denied" to the request, and
+  // the card must say so in plain words rather than fail or lie.
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const p = await ctx.newPage();
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(e.message));
+  const u = Date.now().toString(36);
+  await p.request.post(`${B}/api/community/auth/signup`, { data: { handle: `pushui${u}`, displayName: 'Push', email: `pushui${u}@example.test`, phone: `+44771${String(Date.now() % 1000000).padStart(6, '0')}`, password: 'a-good-long-password' } });
+  await p.goto(`${B}/#/you`);
+  await p.reload({ waitUntil: 'networkidle' });
+  await p.waitForSelector('#notifications');
+  const cfg = await (await p.request.get(`${B}/api/community/push/config`)).json();
+  if (!cfg.enabled) throw new Error('the test server should have push enabled');
+  const status0 = await p.$eval('#notifications p', (n) => n.textContent.trim());
+  if (status0 !== 'Off on this device.') throw new Error(`initial state read "${status0}"`);
+  const on = await p.$('#notifications button:has-text("Turn on notifications")');
+  if (!on) throw new Error('no "Turn on notifications" button');
+  // Hidden means not drawn — an attribute a stylesheet can override is not enough.
+  for (const label of ['Turn them off', 'Send a test']) {
+    const drawn = await p.$eval(`#notifications button:has-text("${label}")`, (b) => b.offsetParent !== null);
+    if (drawn) throw new Error(`"${label}" is visible while notifications are off`);
+  }
+  if (!(await p.$eval('#notifications button:has-text("Turn on notifications")', (b) => b.offsetParent !== null))) throw new Error('"Turn on notifications" is not visible');
+  await on.click();
+  await p.waitForTimeout(800);
+  const status1 = await p.$eval('#notifications p', (n) => n.textContent.trim());
+  const hint = await p.$eval('#notifications p.hint', (n) => n.textContent.trim());
+  if (!['Blocked in this browser.', 'On for this device.', 'Off on this device.'].includes(status1)) throw new Error(`after click the status read "${status1}"`);
+  if (status1 === 'Blocked in this browser.' && !/browser settings/.test(hint)) throw new Error(`no way back offered: "${hint}"`);
+  if (/Error|TypeError|undefined|null/.test(hint)) throw new Error(`raw error shown: "${hint}"`);
+  if (errs.length) throw new Error(`pageerror: ${errs.join(' | ')}`);
+  await ctx.close();
+});
+
+await step('notifications: the service worker handles push and a tap opens the page', async () => {
+  const sw = await (await fetch(`${B}/sw.js`)).text();
+  for (const needle of ["addEventListener('push'", "addEventListener('notificationclick'", 'showNotification', 'openWindow']) {
+    if (!sw.includes(needle)) throw new Error(`sw.js lacks ${needle}`);
+  }
+});
+
 await browser.close();
 console.log(problems.length ? `\nPROBLEMS:\n${problems.join('\n')}` : '\nALL CINEMATIC CHECKS PASSED');
 process.exit(problems.length ? 1 : 0);

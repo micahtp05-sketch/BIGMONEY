@@ -343,6 +343,23 @@ export interface Wave {
   readAt: number | null;
 }
 
+/**
+ * One browser's way of being told.
+ *
+ * What the browser's push service handed back when the member turned
+ * notifications on from their own page. It is the endpoint and two keys and
+ * nothing else about the device; the server can only ever send *through* it,
+ * never read anything back. Gone (404/410 from the service) means the person
+ * turned it off or cleared the browser, and it is deleted on sight.
+ */
+export interface PushSubscriptionRecord {
+  id: string;
+  userId: string;
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  createdAt: number;
+}
+
 /** The whole world, as persisted. */
 export interface CommunityData {
   version: 1;
@@ -354,6 +371,7 @@ export interface CommunityData {
   replies: Reply[];
   waves: Wave[];
   blocks: Block[];
+  pushSubscriptions: PushSubscriptionRecord[];
   meetupMessages: MeetupMessage[];
   reviews: Review[];
   moderation: ModerationCase[];

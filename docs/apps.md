@@ -85,11 +85,11 @@ npm run app:ios          # opens Xcode (Mac only)
   members.
 - Screenshots (phone and, for Apple, iPad), a description, an age rating.
 - **Apple guideline 4.2 — "more than a website".** The honest answer, which is also
-  true: the app installs to the home screen with its own icon and splash, opens with no
-  signal on the cached shell, keeps a signed-in session, and lights up live when
-  somebody answers. What would make that answer unarguable is **push notifications for
-  a reply to your question** — the one feature listed in `docs/handoff.md` §5 that
-  needs a decision from you (see below).
+  true: the app installs with its own icon and splash, opens with no signal on the
+  cached shell, keeps a signed-in session, lights up live when somebody answers, and
+  tells people when somebody answers their question. Notifications inside the store
+  app itself need the native route in §4; until then that last claim is true of the
+  home-screen install, not the Capacitor build.
 
 ### While developing
 
@@ -121,21 +121,26 @@ Not run where this was written: no Electron binary, no Mac, no Windows.
 
 ---
 
-## 4. The decision only you can make: push notifications
+## 4. Notifications — built, Web Push
 
-Every store reviewer, and every member who closes the tab, wants the same thing: to be
-told when somebody answers. That is the biggest remaining gap and the strongest
-"this is an app" argument. Two ways, and they are not the same size:
+Turned on from a member's own page, per device. Four moments: somebody answered your
+question, somebody said your answer worked, somebody said hello, a message about a
+get-together arrived. Never room chatter, never across a block, never a private message's
+text. `npm run push:keys` makes the key pair the server needs (`docs/deploy.md`).
 
-| | Web Push (VAPID) | Native push (APNs / FCM) |
+Where it works today:
+
+| | Website / installed from the browser | Store app (Capacitor) |
 |---|---|---|
-| Works in | the PWA on Android, Mac, Windows; **the iOS app only when installed to the home screen** (iOS 16.4+) | the store apps, and only them |
-| Needs | one library on the server (`web-push` — the first new runtime dependency), a key pair, a subscription table, a bell in the client | Firebase for Android, an Apple key for iOS, a Capacitor plugin, device-token storage, and both providers' consoles |
-| Effort | a day, and it works on the website too | a week, and only the apps get it |
+| Android, Chrome | yes | **no** — the Android WebView has no push service |
+| iPhone | yes, **once added to the home screen** (iOS 16.4+); the card says so in Safari | **no** — WKWebView has no push service |
+| Mac / Windows, Chrome or Edge | yes | — |
 
-Web Push first is the recommendation: it reaches the website *and* the apps, and it is
-one dependency rather than two provider integrations. It is not built, because adding a
-runtime dependency is a line this codebase has held and the call is yours.
+So the store apps are the one place notifications do not yet reach. The next step there
+is native push: the `@capacitor/push-notifications` plugin, Firebase Cloud Messaging for
+Android and an APNs key for iOS, and a second sender on the server that talks to those
+instead of a browser's push service. The subscription table, the four moments and the
+copy are already in place; that step adds a delivery route, not a feature.
 
 ---
 

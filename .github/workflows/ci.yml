@@ -17,8 +17,6 @@ jobs:
       - run: npm ci
       - name: Typecheck
         run: npm run typecheck
-      - name: Sync the native app projects (so their checks run too)
-        run: npm run app:sync
       - name: Unit and API tests (offline)
         run: npm test
       - name: Browser

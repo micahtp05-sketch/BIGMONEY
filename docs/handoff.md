@@ -45,17 +45,17 @@ is no bundler, no lockfile churn, and why the client is plain ES modules.
 | Command | What it does | Needs |
 |---|---|---|
 | `npm run test:all` | everything below, in order — what CI runs | Chromium once (`npx playwright install chromium`) |
-| `npm test` | 281 unit + API tests, including 106 contrast pairs read from the shipped stylesheet and the production boot guard | nothing, runs offline |
+| `npm test` | 294 unit + API tests, including 106 contrast pairs read from the shipped stylesheet and the production boot guard | nothing, runs offline |
 | `npm run test:e2e` | the three browser suites against a server it starts and stops itself | Chromium |
 | `npm run app:sync` | syncs the native projects, bakes `COMMONS_URL`, draws icons and splashes; CI runs it before `npm test` so the 15 app checks are asserted | nothing |
 | `npm run typecheck` | `tsc --noEmit` | nothing |
 | `npm run test:browser` | 23 interface checks | a running server + Playwright |
 | `npm run test:pwa` | 7 install checks | a running server + Playwright |
-| `npm run test:cinematic` | 7 checks on the cinematic layer: theme, sky, morph, live beat, reduced motion | a running server + Playwright |
+| `npm run test:cinematic` | 9 checks: theme, sky, morph, live beat, reduced motion, the notifications card and worker | a running server + Playwright |
 | `npm run seed:demo` | fills an empty instance via the public API | a running server |
 | `npm run icons` | regenerates app icons from source | nothing |
 
-**318 checks, all green** (281 + 23 + 7 + 7), and the 23 interface checks pass again under `prefers-reduced-motion: reduce`. `.github/workflows/ci.yml` runs `npm run test:all` on every push.
+**333 checks, all green** (294 + 23 + 7 + 9), and the 23 interface checks pass again under `prefers-reduced-motion: reduce`. `.github/workflows/ci.yml` runs `npm run test:all` on every push.
 
 ---
 
@@ -118,6 +118,11 @@ the reasoning is in the README under "What the look is for". The two things
 that carry the identity — the title card on every route and one light
 travelling one link when somebody actually speaks — are theme-independent.
 
+**A notification carries a name, a verb, a title and a link — never more.** Four
+moments only; nothing across a block; never a private message's text, because a
+lock screen is not one of the two screens an address may appear on. `web-push` is
+the one runtime dependency added since the build, by the owner's decision.
+
 **Three reports are a holding action, not a verdict.** A moderator rules
 afterwards and the ruling sticks: keeping something clears the reports and it is
 never auto-hidden again, so the same three people cannot re-report their way
@@ -157,7 +162,7 @@ rules are in `docs/simple-ui.md`; packaging is in `docs/apps.md`.
 | | Gap | Why it matters |
 |---|---|---|
 | High | **Identity checking does not scale** | A moderator arranges to see something in person. Fine for a street, not a city, and while the queue is unattended nobody new can answer. |
-| Med | **No notifications** | Ask a question, close the tab, never learn it was answered. Biggest retention risk, and the native justification a store submission needs. `docs/apps.md` §4 lays out Web Push vs native push; it needs the owner's call on the first runtime dependency. |
+| Med | **Store apps get no notifications yet** | Web Push is built and reaches the website and the home-screen app; the Capacitor WebViews have no push service. Native push (FCM + APNs via `@capacitor/push-notifications` and a second server sender) is a delivery route on top of what exists. `docs/apps.md` §4. |
 | Med | **Reviews cannot be answered** | Deliberate (owner's call). A mistaken `hired` review sits on someone's trade and now also moves them down a ranked list. |
 | Med | **Private channels are unmoderatable** | By design. Nothing reaches a moderator unless the recipient reports it. |
 | Med | **Nothing paginates** | Every list stops at 50 with no "show more". |
@@ -193,8 +198,8 @@ public/commons.css      the design system: tokens with computed ratios, type sca
 public/ambient.js       the constellation inside the header, still until somebody speaks
 public/welcome/         landing page + the 3D constellation (canvas, no library)
 public/fonts/           the five faces shared by site and app
-test/                   281 offline tests, contrast.test.ts among them
-test/browser/           37 checks that need a real browser (ui, pwa, cinematic); run.mjs runs them
+test/                   294 offline tests, contrast.test.ts among them
+test/browser/           39 checks that need a real browser (ui, pwa, cinematic); run.mjs runs them
 Dockerfile              one image, /data volume, unprivileged user — see docs/deploy.md
 CLAUDE.md               the short version of this file, for whoever opens the repo next
 android/  ios/          the native app projects (Capacitor); desktop/ the Electron shell

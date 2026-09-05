@@ -24,6 +24,7 @@ import {
   validateEmail,
   validatePhone,
 } from './verify.ts';
+import { PUSH_COPY, type PushPayload, type PushSender } from './push.ts';
 import { SendFailed } from './senders/index.ts';
 import { CommunityStore, publicUser } from './store.ts';
 import type { Channel, MeetupMessage, ModerationCase, ReportTarget, Reply, Review, Thread, User } from './types.ts';
@@ -102,6 +103,8 @@ export interface CommunityOptions {
   moderators?: string[];
   /** How one-time codes reach people. Defaults to logging them to the console. */
   sender?: CodeSender;
+  /** Web Push. Unset means notifications are off and the client is told so. */
+  push?: PushSender;
 }
 
 class HttpError extends Error {
@@ -125,6 +128,7 @@ export function communityRoutes(options: CommunityOptions = {}) {
   // Somebody has to be able to rule on the first report, and there is no way
   // to appoint them from inside an empty instance.
   const sender = options.sender ?? new ConsoleSender();
+  const push = options.push ?? null;
   const seededModerators = new Set((options.moderators ?? []).map((h) => h.trim().toLowerCase()).filter(Boolean));
 
   // A fresh instance opens with somewhere to post rather than a blank page.
@@ -197,6 +201,28 @@ export function communityRoutes(options: CommunityOptions = {}) {
     function requireContactOpen(user: User, otherId: string): void {
       if (store.blockedBetween(user.id, otherId)) {
         throw new HttpError(403, 'You cannot contact this member.');
+      }
+    }
+
+    /**
+     * Tell one member something happened, on every browser they turned it on in.
+     *
+     * Never to yourself, never across a block (a block closes contact, and a
+     * notification is contact), and never a private message's text. Sends are
+     * fire-and-forget from the request's point of view; a subscription the
+     * push service says is gone is deleted on sight.
+     */
+    async function notify(toUserId: string, fromUserId: string | null, payload: PushPayload): Promise<void> {
+      if (!push || toUserId === fromUserId) return;
+      if (fromUserId && store.blockedBetween(toUserId, fromUserId)) return;
+      for (const sub of store.pushSubscriptionsFor(toUserId)) {
+        try {
+          const result = await push.send(sub, payload);
+          if (result === 'gone') store.removePushSubscription(sub.endpoint);
+          else if (result === 'failed') app.log.warn({ userId: toUserId }, 'push did not go');
+        } catch (error) {
+          app.log.warn({ err: error instanceof Error ? error.message : String(error) }, 'push threw');
+        }
       }
     }
 
@@ -432,6 +458,7 @@ export function communityRoutes(options: CommunityOptions = {}) {
       return {
         user: user ? publicUser(user) : null,
         unreadMessages: user ? store.unreadMeetupMessages(user.id) : 0,
+        push: { enabled: push !== null, subscriptions: user ? store.pushSubscriptionsFor(user.id).length : 0 },
         queueSize: user?.role === 'moderator' ? store.openCases().length : 0,
         // Only the account's owner ever sees these, and only about themselves.
         account: user
@@ -793,6 +820,9 @@ export function communityRoutes(options: CommunityOptions = {}) {
       thread.replyCount += 1;
       thread.updatedAt = created.createdAt;
       store.touch();
+      if (thread.authorId !== user.id) {
+        void notify(thread.authorId, user.id, PUSH_COPY.answered(user.displayName, thread.title, thread.id));
+      }
       bus.publish({
         type: 'reply.created',
         channelId: thread.channelId,
@@ -857,7 +887,10 @@ export function communityRoutes(options: CommunityOptions = {}) {
         if (target.threadId !== thread.id) throw new HttpError(400, 'That reply is on another thread.');
         thread.acceptedReplyId = target.id;
         const author = store.users.get(target.authorId);
-        if (author && author.id !== user.id) author.helpfulCount += 1;
+        if (author && author.id !== user.id) {
+          author.helpfulCount += 1;
+          void notify(author.id, user.id, PUSH_COPY.worked(user.displayName, thread.title, thread.id));
+        }
       }
       store.touch();
       bus.publish({ type: 'thread.updated', channelId: thread.channelId, threadId: thread.id });
@@ -1003,11 +1036,9 @@ export function communityRoutes(options: CommunityOptions = {}) {
         reportedBy: [],
         hidden: false,
       });
-      bus.publish({
-        type: 'meetup.message',
-        threadId: thread.id,
-        toUserId: user.id === hostId ? guestId : hostId,
-      });
+      const recipient = user.id === hostId ? guestId : hostId;
+      bus.publish({ type: 'meetup.message', threadId: thread.id, toUserId: recipient });
+      void notify(recipient, user.id, PUSH_COPY.message(user.displayName, thread.title, thread.id));
       return reply.code(201).send({ message: messageView(message, user.id) });
     });
 
@@ -1273,6 +1304,55 @@ export function communityRoutes(options: CommunityOptions = {}) {
       return { blocks };
     });
 
+    // ------------------------------------------------------ push notifications
+
+    const subscriptionSchema = z.object({
+      endpoint: z.string().url().refine((u) => u.startsWith('https://'), 'a push endpoint is https'),
+      keys: z.object({ p256dh: z.string().min(1), auth: z.string().min(1) }),
+    });
+
+    /** Is push set up here, and the key a browser needs to subscribe. */
+    app.get('/push/config', async () => ({ enabled: push !== null, publicKey: push?.publicKey ?? null }));
+
+    /** Keep this browser's subscription. One per browser, whoever is signed in. */
+    app.post('/push/subscribe', async (request, reply) => {
+      const user = requireUser(request);
+      if (!push) throw new HttpError(409, 'Notifications are not set up on this Commons yet.');
+      const input = subscriptionSchema.parse(request.body);
+      store.addPushSubscription({
+        id: randomUUID(),
+        userId: user.id,
+        endpoint: input.endpoint,
+        keys: input.keys,
+        createdAt: Date.now(),
+      });
+      return reply.code(201).send({ subscriptions: store.pushSubscriptionsFor(user.id).length });
+    });
+
+    /** Forget this browser. Only your own — naming somebody else's is a no-op. */
+    app.delete('/push/subscribe', async (request) => {
+      const user = requireUser(request);
+      const { endpoint } = z.object({ endpoint: z.string() }).parse(request.body);
+      const existing = store.pushSubscriptions.get(endpoint);
+      if (existing && existing.userId === user.id) store.removePushSubscription(endpoint);
+      return { subscriptions: store.pushSubscriptionsFor(user.id).length };
+    });
+
+    /** Send yourself one, so you can see it works. Awaited: you are waiting for it. */
+    app.post('/push/test', async (request) => {
+      const user = requireUser(request);
+      if (!push) throw new HttpError(409, 'Notifications are not set up on this Commons yet.');
+      limit(user, 'push-test', 5, 60 * 60 * 1000);
+      let sent = 0;
+      let gone = 0;
+      for (const sub of store.pushSubscriptionsFor(user.id)) {
+        const result = await push.send(sub, PUSH_COPY.test());
+        if (result === 'sent') sent += 1;
+        if (result === 'gone') { gone += 1; store.removePushSubscription(sub.endpoint); }
+      }
+      return { sent, gone, subscriptions: store.pushSubscriptionsFor(user.id).length };
+    });
+
     // --------------------------------------------------------------- waves
 
     app.post('/waves', async (request, reply) => {
@@ -1298,6 +1378,7 @@ export function communityRoutes(options: CommunityOptions = {}) {
         readAt: null,
       });
       bus.publish({ type: 'wave.sent', toUserId: target.id });
+      void notify(target.id, user.id, PUSH_COPY.hello(user.displayName));
       return reply.code(201).send({ wave: { ...wave, from: publicUser(user) } });
     });
 

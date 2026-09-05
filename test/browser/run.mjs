@@ -14,6 +14,7 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import webpush from 'web-push';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const NODE = process.execPath;
@@ -63,6 +64,8 @@ const server = spawn(NODE, ['--experimental-strip-types', 'src/server.ts'], {
     COMMUNITY_MODERATORS: 'commonsmod',
     LOG_LEVEL: 'warn',
     NODE_ENV: 'test',
+    // Push is on, with a throwaway pair, so the notifications card renders its real states.
+    ...(() => { const k = webpush.generateVAPIDKeys(); return { VAPID_PUBLIC_KEY: k.publicKey, VAPID_PRIVATE_KEY: k.privateKey, VAPID_SUBJECT: 'mailto:test@example.test' }; })(),
   },
   stdio: ['ignore', 'inherit', 'inherit'],
 });

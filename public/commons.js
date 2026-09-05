@@ -1502,6 +1502,7 @@ async function viewYou() {
       el('label', { class: 'toggle', style: 'margin-bottom:16px' }, forLiving, 'I do this for a living'),
       el('div', { class: 'row' }, save), note,
     ),
+    await notificationsPanel(),
     accountPanel(),
     await blockedPanel(),
     await myModeration(),
@@ -1805,6 +1806,96 @@ async function blockedPanel() {
         }),
       ))),
   );
+}
+
+/**
+ * Notifications, on this device.
+ *
+ * Push is the one thing that reaches somebody after they have closed the
+ * tab: an answer to their question, a hello, a message about a get-together.
+ * The browser asks its own permission question; the words here say what will
+ * happen before it does, and what to do if it was said no to once.
+ */
+async function notificationsPanel() {
+  const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const config = await api('/push/config').catch(() => ({ enabled: false, publicKey: null }));
+  const note = el('p', { class: 'hint', style: 'margin:10px 0 0' });
+  const iphoneInBrowser = /iPhone|iPad/.test(navigator.userAgent) && !window.matchMedia('(display-mode: standalone)').matches && !navigator.standalone;
+
+  if (!config.enabled) {
+    return el('div', { class: 'card' },
+      el('h2', { style: 'margin-top:0', text: 'Notifications' }),
+      el('p', { class: 'hint', style: 'margin:0', text: 'Not set up on this Commons yet.' }));
+  }
+  if (!supported) {
+    return el('div', { class: 'card' },
+      el('h2', { style: 'margin-top:0', text: 'Notifications' }),
+      el('p', { class: 'hint', style: 'margin:0', text: 'This browser cannot show them.' }));
+  }
+
+  const reg = await navigator.serviceWorker.ready;
+  let current = await reg.pushManager.getSubscription();
+  const status = el('p', { style: 'margin:0 0 10px; font-weight:600' });
+  const on = el('button', { class: 'primary', text: 'Turn on notifications' });
+  const off = el('button', { class: 'quiet', text: 'Turn them off' });
+  const test = el('button', { class: 'quiet', text: 'Send a test' });
+  const row = el('div', { class: 'row', style: 'gap:8px; flex-wrap:wrap' }, on, off, test);
+
+  function paint() {
+    const denied = Notification.permission === 'denied';
+    status.textContent = current ? 'On for this device.' : denied ? 'Blocked in this browser.' : 'Off on this device.';
+    on.hidden = Boolean(current) || denied;
+    off.hidden = !current;
+    test.hidden = !current;
+    note.textContent = denied
+      ? 'Allow notifications for this site in your browser settings, then come back.'
+      : iphoneInBrowser
+        ? 'On an iPhone, add Commons to your home screen first. Then turn these on from there.'
+        : current ? 'You will be told when somebody answers you, says hello, or messages you about a get-together.'
+          : 'When somebody answers your question, says hello, or messages you about a get-together.';
+  }
+
+  const keyBytes = (b64) => {
+    const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+    const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+  };
+
+  on.addEventListener('click', async () => {
+    on.disabled = true;
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') { paint(); return; }
+      current = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(config.publicKey) });
+      await api('/push/subscribe', { method: 'POST', body: current.toJSON() });
+      say('Notifications are on for this device.');
+    } catch (error) { say(error.message || 'That did not work. Try again.'); }
+    finally { on.disabled = false; paint(); }
+  });
+  off.addEventListener('click', async () => {
+    off.disabled = true;
+    try {
+      const endpoint = current?.endpoint;
+      await current?.unsubscribe();
+      current = null;
+      if (endpoint) await api('/push/subscribe', { method: 'DELETE', body: { endpoint } });
+      say('Notifications are off on this device.');
+    } catch (error) { say(error.message); }
+    finally { off.disabled = false; paint(); }
+  });
+  test.addEventListener('click', async () => {
+    test.disabled = true;
+    try {
+      const { sent } = await api('/push/test', { method: 'POST' });
+      say(sent > 0 ? 'Sent. It should appear in a moment.' : 'Nothing to send to. Turn them on first.');
+    } catch (error) { say(error.message); }
+    finally { test.disabled = false; }
+  });
+
+  paint();
+  return el('div', { class: 'card', id: 'notifications' },
+    el('h2', { style: 'margin-top:0', text: 'Notifications' }),
+    status, row, note);
 }
 
 function accountPanel() {
