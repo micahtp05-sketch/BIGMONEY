@@ -1,113 +1,61 @@
-# BIGMONEY
+# Commons
 
-Two things live in this repo, served by one Fastify process:
+Rooms where people talk to each other and to the identity-checked professionals among
+them. Eight trade rooms (Electricians, Plumbers, Heating & Gas, Builders & Renovation,
+Landscapers & Gardeners, Roofers, Painters & Decorators, Tech & Wifi), the groups
+members start themselves, and somewhere to just talk. Built for the person who will
+close the tab rather than ask what a word means.
 
-- **Commons** (`/`) — a community platform where people ask the people nearby for help
-  with the house, join standing public groups, and find company. See
-  [Commons](#commons) below.
-- **The price estimator** (`/estimate/`) — photograph an item, get a price estimate
-  built from comparable marketplace listings.
+- **The app** is at `/`. It installs to a phone or a desktop as a PWA.
+- **The landing page** is at `/welcome/`.
+- **A photo-to-price estimator** lives alongside it at `/estimate/`, joined at one seam:
+  a question in a trade room can carry a rough price made from a photo, so "repair or
+  replace?" starts from a number. It is described [further down](#the-price-estimator).
 
-They are joined at one seam: a question in a help channel can carry a price estimate
-made from a photo, so "repair or replace?" starts from a number instead of a guess.
-
-## The price estimator
-
-The pipeline is three steps:
-
-1. **Identify** — a Claude vision call turns the photo into a structured item record: title, brand, model, condition, and the search queries a seller would actually use.
-2. **Gather** — those queries run against one or more price sources, most-specific query first, stopping once enough comparables accumulate.
-3. **Aggregate** — outliers are fenced out, then the surviving sample produces a median estimate, an interquartile range, and a confidence score.
+One Fastify process, one JSON file, no build step, no framework, no runtime
+dependencies beyond Fastify, Zod and the Anthropic SDK. Node 22.
 
 ## Quick start
 
 ```bash
-npm install
-cp .env.example .env      # optional — see Configuration
-npm start                 # http://localhost:3000
+npm ci
+npm start                 # http://localhost:3000 — one-time codes print to the console
 ```
 
-`http://localhost:3000` is Commons; the estimator is at `/estimate/`.
-
-Commons needs no credentials at all. The estimator runs out of the box with no marketplace credentials — `PRICE_SOURCE` defaults to `fixture`, an offline source backed by `data/fixtures.json` — but does need Claude API credentials for the identification step (`ANTHROPIC_API_KEY`, or an `ant auth login` profile).
+To see it with a day of activity in it instead of fourteen empty rooms:
 
 ```bash
-npm test         # 62 tests, no network required
+COMMUNITY_DATA=:memory: COMMUNITY_SIGNUPS_PER_HOUR=100 COMMUNITY_MODERATORS=commonsmod npm start &
+npm run seed:demo         # six members, a dozen posts, through the public API; prints who to sign in as
+```
+
+Every account the seeder creates shares one well-known password, so it refuses to run
+against anything but localhost and refuses to add to an instance that already has
+members (`SEED_ALLOW_REMOTE=1` / `SEED_FORCE=1` override; read what they say first).
+
+## Tests
+
+```bash
+npm run test:all          # everything below, in order
 npm run typecheck
+npm test                  # 262 unit and API tests. No network, no browser.
+npm run test:e2e          # 37 checks in a real browser: interface, install, cinematic layer
 ```
 
-A brand-new instance opens with six channels and nothing in them, which tells
-you very little. To see it with a day of activity in it:
+`npm test` runs offline with nothing beyond what is in `package.json`. It includes 106
+contrast pairs read from the shipped stylesheet, a test that fails if an email or phone
+number ever appears in a profile or directory response, and the production boot guard.
 
-```bash
-COMMUNITY_DATA=:memory: COMMUNITY_SIGNUPS_PER_HOUR=100 npm start &
-npm run seed:demo
-```
+`npm run test:e2e` starts its own in-memory server on a free port, seeds it, runs the
+three browser suites and stops it. It needs a Chromium once: `npx playwright install
+chromium`. It catches what the API tests structurally cannot — a `null` rendered into
+the page, a live event that never arrives, markup escaping into the DOM, a manifest no
+browser would install, a theme that flashes on reload.
 
-That creates six members and a dozen threads **through the public API**, the
-same calls a browser makes — an answered question with the accepted reply, two
-meetups with RSVPs, a repair-or-replace question carrying a price estimate, and
-somebody posting at 3am in The Front Porch. It prints the handles to sign in as
-when it finishes.
-
-Every account it creates shares one well-known password, so it refuses to run
-against a non-localhost host, and refuses to add to an instance that already has
-members. `SEED_ALLOW_REMOTE=1` and `SEED_FORCE=1` override those; read what they
-say first.
-
-There are also two browser passes, kept out of `npm test`
-because it needs a running server and a real browser:
-
-```bash
-npm install --no-save playwright && npx playwright install chromium
-COMMUNITY_DATA=:memory: PORT=3210 npm start &
-BASE=http://127.0.0.1:3210 npm run test:browser   # 13 interface checks
-BASE=http://127.0.0.1:3210 npm run test:pwa       # 7 install checks
-```
-
-They catch what the API tests structurally cannot — a falsy value rendered into
-the page as the text "null", a live event that never arrives, markup in a post
-escaping into the DOM, a manifest that no browser would offer to install, a
-service worker serving yesterday's posts.
-
-Installing Commons as an app on a phone or a computer is covered in
-[docs/apps.md](docs/apps.md). The interface is held to
-[docs/simple-ui.md](docs/simple-ui.md).
-
-## Configuration
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | — | Claude API credentials. Falls back to an `ant auth login` profile. |
-| `PRICE_SOURCE` | `fixture` | `fixture` (offline) or `ebay` (live). |
-| `EBAY_CLIENT_ID` / `EBAY_CLIENT_SECRET` | — | Required when `PRICE_SOURCE=ebay`. |
-| `EBAY_ENV` | `PRODUCTION` | `PRODUCTION` or `SANDBOX`. |
-| `EBAY_MARKETPLACE` | `EBAY_US` | e.g. `EBAY_GB`, `EBAY_DE`. |
-| `PORT` | `3000` | HTTP port. |
-| `COMMUNITY_DATA` | `data/community.json` | Where Commons persists. `:memory:` runs without a file. |
-| `COMMUNITY_SIGNUPS_PER_HOUR` | `5` | New accounts allowed per hour from one IP. |
-| `COMMUNITY_MODERATORS` | — | Handles that are moderators from the start, comma separated. |
-| `EMAIL_PROVIDER` | — | `resend`, `postmark` or `sendgrid`. With `EMAIL_API_KEY` and `EMAIL_FROM`. |
-| `SMS_PROVIDER` | — | `twilio` or `messagebird`. With `SMS_API_KEY`, `SMS_FROM`, and `SMS_ACCOUNT_ID` for Twilio. |
-
-## Estimator API
-
-`POST /api/estimate` — multipart form, field `image` (JPEG/PNG/GIF/WebP, ≤10MB), optional field `hint`.
-
-```jsonc
-{
-  "item":     { "title": "...", "brand": "...", "condition": "good", "confidence": 0.92, ... },
-  "estimate": { "estimateCents": 16850, "lowCents": 15762, "highCents": 17612,
-                "currency": "USD", "sampleSize": 10, "outliersRemoved": 2,
-                "confidence": 0.71, "confidenceReason": "..." },
-  "listings": [ ... ],
-  "warnings": [ ... ]
-}
-```
-
-`estimate` is `null` when no defensible number exists — the API does not invent one from a single data point.
-
-`GET /api/health` — liveness plus the active source list.
+The interface is held to [docs/simple-ui.md](docs/simple-ui.md). Installing it as an
+app is in [docs/apps.md](docs/apps.md). Putting it on the internet is
+[docs/deploy.md](docs/deploy.md). The manager handoff — status, the decisions that
+must not be undone, the ranked gaps — is [docs/handoff.md](docs/handoff.md).
 
 ## Commons
 
@@ -460,6 +408,56 @@ dependency.
 Login says the same thing for a wrong password as for a handle that does not exist, so
 the form cannot be used to find out who has an account.
 
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | — | Claude API credentials. Falls back to an `ant auth login` profile. |
+| `PRICE_SOURCE` | `fixture` | `fixture` (offline) or `ebay` (live). |
+| `EBAY_CLIENT_ID` / `EBAY_CLIENT_SECRET` | — | Required when `PRICE_SOURCE=ebay`. |
+| `EBAY_ENV` | `PRODUCTION` | `PRODUCTION` or `SANDBOX`. |
+| `EBAY_MARKETPLACE` | `EBAY_US` | e.g. `EBAY_GB`, `EBAY_DE`. |
+| `PORT` | `3000` | HTTP port. |
+| `COMMUNITY_DATA` | `data/community.json` | Where Commons persists. `:memory:` runs without a file. |
+| `COMMUNITY_SIGNUPS_PER_HOUR` | `5` | New accounts allowed per hour from one IP. |
+| `COMMUNITY_MODERATORS` | — | Handles that are moderators from the start, comma separated. |
+| `EMAIL_PROVIDER` | — | `resend`, `postmark` or `sendgrid`. With `EMAIL_API_KEY` and `EMAIL_FROM`. |
+| `SMS_PROVIDER` | — | `twilio` or `messagebird`. With `SMS_API_KEY`, `SMS_FROM`, and `SMS_ACCOUNT_ID` for Twilio. |
+
+## Deploying
+
+`docs/deploy.md` is the whole checklist. The short version: it needs HTTPS, at least one
+way to send one-time codes (`EMAIL_PROVIDER` or `SMS_PROVIDER`), a handle in
+`COMMUNITY_MODERATORS`, and a persistent path in `COMMUNITY_DATA`. The `Dockerfile`
+builds an image that keeps state on a `/data` volume and runs as an unprivileged user;
+`GET /api/community/health` is the health check.
+
+## The price estimator
+
+The pipeline is three steps:
+
+1. **Identify** — a Claude vision call turns the photo into a structured item record: title, brand, model, condition, and the search queries a seller would actually use.
+2. **Gather** — those queries run against one or more price sources, most-specific query first, stopping once enough comparables accumulate.
+3. **Aggregate** — outliers are fenced out, then the surviving sample produces a median estimate, an interquartile range, and a confidence score.
+
+## Estimator API
+
+`POST /api/estimate` — multipart form, field `image` (JPEG/PNG/GIF/WebP, ≤10MB), optional field `hint`.
+
+```jsonc
+{
+  "item":     { "title": "...", "brand": "...", "condition": "good", "confidence": 0.92, ... },
+  "estimate": { "estimateCents": 16850, "lowCents": 15762, "highCents": 17612,
+                "currency": "USD", "sampleSize": 10, "outliersRemoved": 2,
+                "confidence": 0.71, "confidenceReason": "..." },
+  "listings": [ ... ],
+  "warnings": [ ... ]
+}
+```
+
+`estimate` is `null` when no defensible number exists — the API does not invent one from a single data point.
+
+`GET /api/health` — liveness plus the active source list.
 
 ## Adding a price source
 
@@ -520,32 +518,37 @@ Prices are carried in **minor units** (cents) as integers throughout, so nothing
 
 ```
 src/
-  types.ts             Estimator types — the contract between every stage
-  vision.ts            Claude vision call, schema, refusal handling
-  aggregate.ts         Quantiles, outlier rejection, confidence scoring
-  server.ts            Fastify wiring for both surfaces
-  sources/
-    index.ts           PriceSource registry + multi-query gathering
-    ebay.ts            eBay Browse API adapter
-    fixture.ts         Offline source for tests and local development
+  server.ts            Fastify wiring for both surfaces; buildServer() is importable
   community/
     types.ts           Commons domain types, including the SSE event union
     store.ts           In-memory maps + atomic JSON persistence
     auth.ts            scrypt passwords, session tokens, cookie handling
     routes.ts          Every Commons route, as a Fastify plugin
     views.ts           Domain records -> what a client is allowed to see
-    events.ts          In-process fan-out for SSE
-    ratelimit.ts       Fixed-window limiter
-    seed.ts            The six channels a new instance opens with
     verify.ts          One-time codes, hashed and expiring
     senders/           Email and SMS adapters, and the env factory
+    events.ts          In-process fan-out for SSE
+    ratelimit.ts       Fixed-window limiter
+    seed.ts            The fourteen rooms a new instance opens with
+  types.ts             Estimator types — the contract between every stage
+  vision.ts            Claude vision call, schema, refusal handling
+  aggregate.ts         Quantiles, outlier rejection, confidence scoring
+  sources/             PriceSource registry; eBay adapter; offline fixture source
 public/
-  index.html           Commons shell
-  commons.js           Commons client — no framework, no build step
-  commons.css
-  estimate/index.html  The price estimator page
-scripts/seed-demo.mjs  Fills an empty instance with a day of activity
-data/fixtures.json     Sample listings for the offline source
+  index.html           The app shell
+  commons.js           The client — no framework, no build step
+  commons.css          The design system: tokens with computed ratios, type scale, motion
+  ambient.js           The constellation inside the header
+  sw.js                Service worker; bump SHELL_VERSION when the client changes
+  welcome/             The landing page and its hand-written 3D scene
+  estimate/            The price estimator page
+  icons/  fonts/
+scripts/seed-demo.mjs  Fills an empty instance with a day of activity, through the API
+scripts/make-icons.mjs Regenerates the app icons
+test/*.test.ts         Offline suites (node:test) — API, store, senders, contrast, server
+test/browser/          ui, pwa and cinematic checks; run.mjs runs them with their own server
+docs/                  handoff, simple-ui standard, deploy, apps
+data/fixtures.json     Sample listings for the offline price source
 data/community.json    Commons state (created on first write, gitignored)
-test/                  Unit + integration tests
+Dockerfile             One image, /data volume, unprivileged user
 ```

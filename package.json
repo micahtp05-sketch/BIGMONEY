@@ -1,9 +1,9 @@
 {
-  "name": "bigmoney",
+  "name": "commons",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Image-to-price-estimate: identify an item from a photo, find comparable listings, aggregate to an estimate.",
+  "description": "Commons: rooms where people talk to each other and to the identity-checked professionals among them. A photo-to-price estimator lives alongside it.",
   "engines": {
     "node": ">=22"
   },
@@ -12,12 +12,14 @@
     "start": "node --experimental-strip-types src/server.ts",
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
+    "test:e2e": "node test/browser/run.mjs",
+    "test:all": "npm run typecheck && npm test && npm run test:e2e",
     "test:browser": "node test/browser/commons.ui.mjs",
+    "test:pwa": "node test/browser/pwa.mjs",
+    "test:cinematic": "node test/browser/cinematic.mjs",
     "seed:demo": "node scripts/seed-demo.mjs",
     "icons": "node scripts/make-icons.mjs",
-    "desktop": "electron desktop/main.js",
-    "test:pwa": "node test/browser/pwa.mjs",
-    "test:cinematic": "node test/browser/cinematic.mjs"
+    "desktop": "electron desktop/main.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
@@ -28,6 +30,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "playwright": "^1.62.1",
     "typescript": "^5.7.2"
   }
 }

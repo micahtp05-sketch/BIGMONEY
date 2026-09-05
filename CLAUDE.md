@@ -1,0 +1,59 @@
+# Commons
+
+Rooms where people talk to each other and to the identity-checked professionals among
+them. A photo-to-price estimator lives alongside it at `/estimate/`, unchanged and
+separate. App at `/`, landing page at `/welcome/`.
+
+Read `docs/handoff.md` first. Its §3 lists seven product decisions that are argued
+positions, not defaults — do not undo them without asking the owner.
+
+## Run
+
+```bash
+npm ci
+npm start                      # http://localhost:3000, codes logged to the console
+COMMUNITY_DATA=:memory: COMMUNITY_SIGNUPS_PER_HOUR=100 COMMUNITY_MODERATORS=commonsmod npm start &
+npm run seed:demo              # a day of activity; prints who to sign in as
+```
+
+## Test — run all of it before claiming anything works
+
+```bash
+npm run test:all               # typecheck + unit/API (offline) + browser suites
+npm test                       # unit/API only, no network, no browser
+npm run test:e2e               # starts its own server; needs `npx playwright install chromium` once
+```
+
+The three worst bugs in this codebase were found by looking at a screenshot, not by a
+passing test. When the client changes, look at it.
+
+## Constraints that have held throughout
+
+- Node 22 with `--experimental-strip-types`. No build step. No framework.
+- No new runtime dependencies. `playwright` is a devDependency for the browser suites only.
+- The client is plain ES modules in `public/commons.js`; the design system is
+  `public/commons.css`; the header sky is `public/ambient.js`. The 3D landing scene is
+  hand-written canvas.
+- `test/browser/*.mjs` select on class names. Add classes freely; never rename or remove.
+- The interface is held to `docs/simple-ui.md` §4 — numbers, not intentions. 7:1 body
+  contrast, 16 px body, nothing under 14 px, 44 px targets, focus rings, nothing
+  hover-only, colour never the only signal. `test/contrast.test.ts` reads the shipped
+  stylesheet and fails if a pair drops below its floor.
+- Change `public/commons.js` or `public/commons.css` → bump `SHELL_VERSION` in
+  `public/sw.js`, or returning visitors keep the old file.
+- Email and phone never leave the server. There is a test that fails if either string
+  appears in a profile or directory response. Keep it.
+
+## Where things are
+
+```
+src/server.ts             Fastify wiring for both surfaces; buildServer() is importable
+src/community/            Commons: types, store, auth, routes, views, verify, senders/
+src/{vision,aggregate,sources}  The estimator
+public/                   The app, landing page, estimator page, icons, fonts
+test/*.test.ts            Offline suites (node:test)
+test/browser/             ui, pwa, cinematic — run.mjs orchestrates them
+docs/handoff.md           The manager handoff: status, decisions, gaps, what to do first
+docs/simple-ui.md         The interface standard
+docs/deploy.md            How to put it on the internet
+```

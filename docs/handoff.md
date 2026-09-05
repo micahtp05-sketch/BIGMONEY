@@ -1,7 +1,10 @@
 # Commons — handoff
 
 **Status:** built and tested, not deployed. Nobody has used it.
-**Branch:** `claude/community-needs-platform-cttvf4` · **PR:** micahtp05-sketch/BIGMONEY#2
+**Branch:** `claude/community-needs-platform-cttvf4` · **PR:** micahtp05-sketch/BIGMONEY#2 → `main`
+**One click only the owner can make:** the repository's default branch is still
+`claude/hello-76xcdg` (the pre-Commons state `main` was cut from). Settings →
+General → Default branch → `main`. The two unrelated `claude/…` branches can go.
 
 ---
 
@@ -41,7 +44,9 @@ is no bundler, no lockfile churn, and why the client is plain ES modules.
 
 | Command | What it does | Needs |
 |---|---|---|
-| `npm test` | 258 unit + API tests, including 106 contrast pairs read from the shipped stylesheet | nothing, runs offline |
+| `npm run test:all` | everything below, in order — what CI runs | Chromium once (`npx playwright install chromium`) |
+| `npm test` | 262 unit + API tests, including 106 contrast pairs read from the shipped stylesheet and the production boot guard | nothing, runs offline |
+| `npm run test:e2e` | the three browser suites against a server it starts and stops itself | Chromium |
 | `npm run typecheck` | `tsc --noEmit` | nothing |
 | `npm run test:browser` | 23 interface checks | a running server + Playwright |
 | `npm run test:pwa` | 7 install checks | a running server + Playwright |
@@ -49,7 +54,7 @@ is no bundler, no lockfile churn, and why the client is plain ES modules.
 | `npm run seed:demo` | fills an empty instance via the public API | a running server |
 | `npm run icons` | regenerates app icons from source | nothing |
 
-**295 checks, all green** (258 + 23 + 7 + 7), and the 23 interface checks pass again under `prefers-reduced-motion: reduce`.
+**299 checks, all green** (262 + 23 + 7 + 7), and the 23 interface checks pass again under `prefers-reduced-motion: reduce`. `.github/workflows/ci.yml` runs `npm run test:all` on every push.
 
 ---
 
@@ -138,7 +143,7 @@ rules are in `docs/simple-ui.md`; packaging is in `docs/apps.md`.
    refused at the egress proxy. This needs somebody with credentials and a host,
    not another build container.
 2. **Deploy over HTTPS.** Nothing is hosted. The PWA cannot be installed without
-   it and the whole thing currently runs on a laptop.
+   it. `docs/deploy.md` and the `Dockerfile` make this an afternoon, not a project.
 3. **Appoint moderators.** `COMMUNITY_MODERATORS=handle1,handle2` seeds the
    first; after that they appoint each other. Without one, nobody can be
    identity-checked, so nobody can answer in a trade room.
@@ -188,7 +193,9 @@ public/ambient.js       the constellation inside the header, still until somebod
 public/welcome/         landing page + the 3D constellation (canvas, no library)
 public/fonts/           the five faces shared by site and app
 test/                   258 offline tests, contrast.test.ts among them
-test/browser/           37 checks that need a real browser (ui, pwa, cinematic)
+test/browser/           37 checks that need a real browser (ui, pwa, cinematic); run.mjs runs them
+Dockerfile              one image, /data volume, unprivileged user — see docs/deploy.md
+CLAUDE.md               the short version of this file, for whoever opens the repo next
 docs/simple-ui.md       the interface standard the UI is held to
 docs/apps.md            what installs where, and what was never built
 scripts/seed-demo.mjs   fills an instance through the public API
