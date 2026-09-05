@@ -18,7 +18,7 @@ const state = {
   unreadHellos: 0,
   queueSize: 0,
   account: null,
-  lit: null,            // { slug, until } — the rail room glowing for a live event
+  lit: null,            // { slug } — the rail room glowing for a live event
 };
 
 // ------------------------------------------------------- motion + live state
@@ -26,17 +26,19 @@ const state = {
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
 let sky = null;                 // set by the dynamic import in start()
 let lastHash = null;            // the hash show() last rendered
-let transitioning = false;
+let transitioning = false;      // a view transition is in flight
 let showSeq = 0;                // every show() takes a ticket; a deferred swap only runs if its ticket is still the newest
-let cutTimer = 0;               // the timer that strips .cut — cleared on the next navigation so a fast second cut is not cut short      // a view transition is in flight
+let cutTimer = 0;               // the timer that strips .cut — cleared on the next navigation so a fast second cut is not cut short
 let stagedCard = null;          // the .cat/.post the person tapped, named 'stage' until show() runs
-let live = null;                // { id, kind, slug } set by the stream just before it calls route()
+let live = [];                  // { id, what } queued by the stream for the next same-hash render
+let routeHash = null;           // the hash renderRoute() was dispatched for; a render that outlives it stands down
 let pendingChrome = { route: 'home', room: null };   // applied to <html> inside the swap, so the accent flips at the cut
 const DEPTH = (h) => h === '#/' ? 0
   : /^#\/(p|u|plan|people)\//.test(h) ? 2 : 1;
 
 function stage(node, titleSel) {
   if (reduced.matches || typeof document.startViewTransition !== 'function') return;
+  clearStage();
   node.style.viewTransitionName = 'stage';
   node.querySelector(titleSel)?.style.setProperty('view-transition-name', 'hero-title');
   stagedCard = node;
@@ -168,7 +170,7 @@ function who(author, ts, knows = []) {
 
 /** Stars as text, because a row of glyphs alone is not readable to everyone. */
 function stars(rating) {
-  return el('span', { class: 'stars', title: `${rating} out of 5` },
+  return el('span', { class: 'stars' },
     el('span', { 'aria-hidden': 'true', text: '★'.repeat(rating) + '☆'.repeat(5 - rating) }),
     el('span', { class: 'sr', text: `${rating} out of 5` }));
 }
@@ -187,7 +189,7 @@ function tradeLine(person) {
   return el('p', { class: 'row', style: 'gap:8px; margin:0 0 8px' },
     person.trade ? el('span', { class: 'tag trade', text: person.trade }) : null,
     person.identityVerified
-      ? el('span', { class: 'tag worked', title: 'Commons confirmed a real person is behind this account', text: '✓ Identity checked' })
+      ? el('span', { class: 'tag worked', text: '✓ Identity checked' })
       : null,
     person.worksInTrade ? el('span', { class: 'hint', text: 'Says they do this for a living' }) : null);
 }
@@ -293,7 +295,7 @@ function renderRooms() {
     el('span', { class: `dot ${c.kind}` }),
     el('span', { text: c.name }),
     isHelp(c.kind) && c.professionals
-      ? el('span', { class: 'n', title: 'Checked professionals', text: String(c.professionals) })
+      ? el('span', { class: 'n' }, String(c.professionals), el('span', { class: 'sr', text: c.professionals === 1 ? ' checked professional' : ' checked professionals' }))
       : null,
   );
 
@@ -312,13 +314,26 @@ function renderRooms() {
   );
 }
 
+const BEHIND_RAIL = () => [document.querySelector('header.top'), document.querySelector('nav.main'), document.getElementById('view')];
 function openRooms() {
-  document.getElementById('rooms')?.classList.add('open');
+  const rail = document.getElementById('rooms');
+  if (!rail || rail.classList.contains('open')) return;
+  rail.classList.add('open');
   document.getElementById('roomsToggle')?.setAttribute('aria-expanded', 'true');
+  // Only on a phone is the rail a sheet over the page; on desktop it is always there.
+  if (window.matchMedia('(max-width: 899px)').matches) {
+    for (const n of BEHIND_RAIL()) n?.setAttribute('inert', '');
+    document.getElementById('roomsClose')?.focus();
+  }
 }
 function closeRooms() {
-  document.getElementById('rooms')?.classList.remove('open');
+  const rail = document.getElementById('rooms');
+  if (!rail || !rail.classList.contains('open')) return;
+  rail.classList.remove('open');
   document.getElementById('roomsToggle')?.setAttribute('aria-expanded', 'false');
+  const wasInside = rail.contains(document.activeElement);
+  for (const n of BEHIND_RAIL()) n?.removeAttribute('inert');
+  if (wasInside) document.getElementById('roomsToggle')?.focus();
 }
 
 function renderNav() {
@@ -366,12 +381,15 @@ function show(...nodes) {
   // lands in that gap — a live update re-rendering the room while the hash
   // has already moved on to the post — the deferred swap would overwrite the
   // newer, correct view with the older one. The ticket makes it stand down.
-  const seq = ++showSeq;
   const hash = window.location.hash || '#/';
+  // A render that outlived its hash — a live update fetching the room while
+  // the person tapped a post — must not paint. route() re-renders afterwards.
+  if (routeHash !== null && hash !== routeHash) return;
+  const seq = ++showSeq;
   const navigating = hash !== lastHash;
   const from = lastHash;
   lastHash = hash;
-  if (navigating) live = null;
+  if (navigating) live = [];
 
   const swap = () => {
     replaceKids(host, ...nodes);
@@ -379,15 +397,17 @@ function show(...nodes) {
     html.dataset.route = pendingChrome.route;
     if (pendingChrome.room) html.dataset.room = pendingChrome.room; else delete html.dataset.room;
     renderShell();
-    window.scrollTo(0, 0);
+    if (navigating) window.scrollTo(0, 0);   // a live update never jumps the page
     host.classList.remove('cut', 'staged');
     clearTimeout(cutTimer);
     if (navigating && !reduced.matches) { void host.offsetWidth; host.classList.add('cut'); cutTimer = setTimeout(() => host.classList.remove('cut', 'staged'), 1000); }
-    if (!navigating && live) markArrived(host);
+    if (!navigating && live.length) markArrived(host);
   };
 
   const pushIn = Boolean(stagedCard && document.contains(stagedCard));
-  const canMorph = navigating && !reduced.matches && typeof document.startViewTransition === 'function' && !transitioning;
+  // Never on first paint, and never under a cross-document transition from /welcome/.
+  const canMorph = navigating && from !== null && !reduced.matches && typeof document.startViewTransition === 'function'
+    && !transitioning && !document.activeViewTransition;
   if (!canMorph) { clearStage(); swap(); return; }
 
   const pullOut = !pushIn && from !== null && DEPTH(hash) < DEPTH(from);
@@ -407,16 +427,31 @@ function show(...nodes) {
       if (back) { back.style.viewTransitionName = 'stage'; back.querySelector('.nm, .t')?.style.setProperty('view-transition-name', 'hero-title'); }
     }
   });
-  t.finished.finally(() => { transitioning = false; clearStage(); });
+  t.finished.catch(() => {}).finally(() => { transitioning = false; clearStage(); });
 }
 
 /** After a same-page live re-render: the node the event was about gets a rule and the word New. */
 function markArrived(host) {
-  const node = live.id ? host.querySelector(`[data-id="${CSS.escape(String(live.id))}"]`) : null;
-  live = null;
-  if (!node) return;
-  node.classList.add('arrived');
-  node.querySelector('.who')?.append(el('span', { class: 'tag new', text: 'New' }));
+  let said = null;
+  live = live.filter(({ id, what }) => {
+    const node = host.querySelector(`[data-id="${CSS.escape(String(id))}"]`);
+    if (!node) return true;   // not rendered yet; the next render will have it
+    node.classList.add('arrived');
+    node.querySelector('.who')?.append(el('span', { class: 'tag new', text: 'New' }));
+    said = what;
+    return false;
+  });
+  // A sighted person sees the rule and the word; say it once for everyone else.
+  const region = document.getElementById('arrivals');
+  if (said && region) {
+    region.textContent = '';
+    requestAnimationFrame(() => { region.textContent = said === 'answer' ? 'New answer on this page.' : 'New post on this page.'; });
+  }
+}
+/** A live re-render would destroy a half-typed message; while a field has focus, wait. */
+function typing() {
+  const a = document.activeElement;
+  return Boolean(a && view().contains(a) && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT'));
 }
 function signalRule() {
   if (reduced.matches) return;
@@ -426,14 +461,14 @@ function signalRule() {
 }
 function litRoom(slug) {
   if (!slug) return;
-  state.lit = { slug, until: Date.now() + 1200 };
+  state.lit = { slug };
   document.querySelector(`.room[data-slug="${CSS.escape(slug)}"]`)?.classList.add('lit');
   setTimeout(() => {
     if (state.lit?.slug === slug) state.lit = null;
     document.querySelector(`.room[data-slug="${CSS.escape(slug)}"]`)?.classList.remove('lit');
   }, 1200);
 }
-function arrive(kind, slug, id) { sky?.pulse(kind); litRoom(slug); live = { id, kind, slug }; }
+function arrive(kind, slug) { sky?.pulse(kind); litRoom(slug); }
 
 function signInFirst(what) {
   if (state.me) return false;
@@ -896,7 +931,7 @@ function answerNode(thread, reply) {
 
   if (thread.viewerIsAuthor) {
     acts.append(el('button', {
-      class: `quiet${reply.accepted ? ' on' : ''}`,
+      class: 'quiet',
       text: reply.accepted ? 'Undo' : 'This one worked',
       onclick: async () => {
         try {
@@ -1937,6 +1972,7 @@ async function route() {
 
 async function renderRoute() {
   const hash = window.location.hash || '#/';
+  routeHash = hash;
   // Nav and rooms are re-rendered inside show()'s swap (renderShell), so the
   // marks glide with the same cut as the page. Decide the chrome here; show()
   // applies it to <html> at the moment of the swap.
@@ -1984,15 +2020,21 @@ function connectStream() {
     const data = JSON.parse(event.data);
     const category = state.categories.find((c) => c.id === data.channelId);
     if (category) category.threadCount += 1;
-    arrive(category?.kind ?? 'help', category?.slug, data.threadId);
-    if (hash() === `#/c/${category?.slug}` || hash() === '#/') { signalRule(); route(); } else live = null;
+    arrive(category?.kind ?? 'help', category?.slug);
+    if ((hash() === `#/c/${category?.slug}` || hash() === '#/') && !typing()) {
+      live.push({ id: data.threadId, what: 'post' });
+      signalRule(); route();
+    }
   });
   stream.addEventListener('reply.created', (event) => {
     const data = JSON.parse(event.data);
     const category = state.categories.find((c) => c.id === data.channelId);
     const onPost = hash() === `#/p/${data.threadId}`;
-    arrive(category?.kind ?? 'help', category?.slug, onPost ? data.replyId : data.threadId);
-    if (onPost || hash() === `#/c/${category?.slug}`) { signalRule(); route(); } else live = null;
+    arrive(category?.kind ?? 'help', category?.slug);
+    if ((onPost || hash() === `#/c/${category?.slug}`) && !typing()) {
+      live.push(onPost ? { id: data.replyId, what: 'answer' } : { id: data.threadId, what: 'post' });
+      signalRule(); route();
+    }
   });
   stream.addEventListener('thread.updated', (event) => {
     const data = JSON.parse(event.data);

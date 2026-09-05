@@ -155,7 +155,6 @@ rules are in `docs/simple-ui.md`; packaging is in `docs/apps.md`.
 | Med | **Reviews cannot be answered** | Deliberate (owner's call). A mistaken `hired` review sits on someone's trade and now also moves them down a ranked list. |
 | Med | **Private channels are unmoderatable** | By design. Nothing reaches a moderator unless the recipient reports it. |
 | Med | **Nothing paginates** | Every list stops at 50 with no "show more". |
-| Med | **Chat re-renders on live updates** | Loses scroll position and a half-typed message. |
 | Low | **Trade→room matching is string-based** | "Gas engineer" finds Heating & Gas; "Sparky" finds nothing. Fix is a picklist mapped to rooms. |
 | Low | **Search is a substring scan** | Over every thread, every time. |
 | Low | **Service worker version is manual** | Change `commons.js` or `commons.css` without bumping `SHELL_VERSION` and returning users keep the old file. Currently `commons-shell-v5`. |

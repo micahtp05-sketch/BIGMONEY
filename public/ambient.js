@@ -15,8 +15,8 @@
 
 // Constants copied from /welcome/scene.js (CATEGORY_COLOURS, NEAR, FAR, ease)
 // so the two skies cannot drift apart; scene.js itself is untouched.
-const HUBS = { help: [150, 200, 255], group: [208, 176, 246], social: [126, 228, 172] };
-const NEAR = [255, 247, 232];
+export const HUBS = { help: [150, 200, 255], group: [208, 176, 246], social: [126, 228, 172] };
+export const NEAR = [255, 247, 232];
 const FAR = [128, 158, 205];
 const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2); // easeInOutQuad, as scene.js
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -27,8 +27,8 @@ const mix = (a, b, t) => [
 ];
 
 const NIGHT = '#080D16';
-const ZONE = 0.12;                    // alpha multiplier under any header text box (see test/contrast.test.ts)
-const CAP = { link: 0.22, halo: 0.30, core: 0.60, hubCore: 0.85 };
+export const ZONE = 0.12;                    // alpha multiplier under any header text box (see test/contrast.test.ts)
+export const CAP = { link: 0.22, halo: 0.30, core: 0.60, hubCore: 0.85 };
 const ZONE_PAD = 6;                   // px around every '.top-in > *' box for dimming
 const SIGNAL_PAD = 12;                // px around every box a travelling point must stay out of
 const FOV = 900;
@@ -68,8 +68,15 @@ export function startAmbient(canvas) {
   let projected = [];
 
   function build() {
+    // A live light indexes nodes that are about to be replaced; drop it first
+    // or a resize mid-pulse throws inside the next frame.
+    cancelLoop();
     // Re-seeded on every build, so a given header width always draws the same sky.
     const rnd = mulberry32(SEED);
+    // Stretch the band to the header's width, not the hero's globe: the sky is
+    // the frame, and density costs nothing because contrast is bounded by
+    // CAP × ZONE, not by how many points there are.
+    const stretch = width >= 900 ? 2.1 : 1.6;
     const linkDistance = 0.36 * R;
     nodes = [];
     for (let i = 0; i < N; i += 1) {
@@ -78,7 +85,7 @@ export function startAmbient(canvas) {
       const theta = Math.PI * (1 + Math.sqrt(5)) * i;
       const radius = R * (0.66 + rnd() * 0.5);
       nodes.push({
-        bx: radius * Math.sin(phi) * Math.cos(theta) * 1.15,
+        bx: radius * Math.sin(phi) * Math.cos(theta) * stretch,
         by: radius * Math.sin(phi) * Math.sin(theta) * 0.14, // a band, not a globe
         bz: radius * Math.cos(phi),
         hub: false,
@@ -118,7 +125,7 @@ export function startAmbient(canvas) {
     canvas.width = Math.max(1, Math.round(width * dpr));
     canvas.height = Math.max(1, Math.round(height * dpr));
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const n = width >= 560 ? 60 : 36;
+    const n = width >= 900 ? 84 : width >= 560 ? 60 : 36;
     const r = Math.min(640, Math.max(260, width * 0.42));
     if (n !== N || r !== R) { N = n; R = r; build(); }
     draw(performance.now());
@@ -141,7 +148,9 @@ export function startAmbient(canvas) {
       const y2 = n.by * cosX - z1 * sinX;
       const z2 = n.by * sinX + z1 * cosX;
       const scale = FOV / (FOV + z2 + 620);
-      projected[i] = { x: cx + x1 * scale, y: cy + y2 * scale, scale, depth: z2 };
+      let y = cy + y2 * scale;
+      if (n.hub) y = Math.min(Math.max(y, height * 0.22), height * 0.78);
+      projected[i] = { x: cx + x1 * scale, y, scale, depth: z2 };
     }
   }
 
@@ -212,7 +221,7 @@ export function startAmbient(canvas) {
       const a = projected[link.i];
       const b = projected[link.j];
       const near = (a.scale + b.scale) / 2;
-      const alpha = Math.min(link.strength * near * near, CAP.link) * Math.min(factor[link.i], factor[link.j]);
+      const alpha = Math.min(link.strength * near, CAP.link) * Math.min(factor[link.i], factor[link.j]);
       if (alpha < 0.005) continue;
       ctx.strokeStyle = rgba([140, 180, 235], alpha);
       ctx.beginPath();
@@ -235,7 +244,7 @@ export function startAmbient(canvas) {
       const base = n.hub ? n.colour : mix(FAR, NEAR, warmth);
 
       const haloPeak = (n.hub ? CAP.halo : Math.min(alpha * 0.95, CAP.halo)) * zone;
-      const haloRadius = Math.max(r * (n.hub ? 5.5 * swellOf(i, now) : 4), 2);
+      const haloRadius = Math.min(Math.max(r * (n.hub ? 5.5 * swellOf(i, now) : 4), 2), height * 0.42);
       const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, haloRadius);
       glow.addColorStop(0, rgba(base, haloPeak));
       glow.addColorStop(0.3, rgba(base, haloPeak * 0.32));

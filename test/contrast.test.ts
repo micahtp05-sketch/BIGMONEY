@@ -113,15 +113,30 @@ function pair(theme: Theme, label: string, fgName: string, bg: string | [string,
   });
 }
 
-// Worst-case grounds (§2.3). Dark glow centre: rgba(30,58,110,.35) over the night ground.
+// Worst-case grounds (§2.3). Dark glow centre: rgba(30,58,110,.45) over the night ground.
 const NIGHT = '#080D16';
-const glow = over([30, 58, 110], 0.35, DARK.get('--bg') ?? NIGHT);
-// Header sky under a text box: sprites at ZONE alpha. Hub halo .30 then hub core .85
-// (help hub, cores at +45 per channel), or person halo .30 (NEAR) then core .60 (white).
-// The brighter of the two is the bound; ambient.js caps every alpha at these ceilings.
-const ZONE = 0.12;
-const hubPix = over([195, 245, 255], 0.85 * ZONE, over([150, 200, 255], 0.30 * ZONE, NIGHT));
-const personPix = over([255, 255, 255], 0.60 * ZONE, over([255, 247, 232], 0.30 * ZONE, NIGHT));
+const glow = over([30, 58, 110], 0.45, DARK.get('--bg') ?? NIGHT);
+// Header sky under a text box: one sprite at ZONE alpha — hub halo then hub core
+// (help hub, cores at +45 per channel), or person halo (NEAR) then core (white).
+// The caps and ZONE are read from ambient.js itself, so raising one there
+// fails here rather than silently voiding the documented bound.
+const ambient = readFileSync(new URL('../public/ambient.js', import.meta.url), 'utf8');
+const num = (name: string): number => {
+  const m = ambient.match(new RegExp(`\\b${name}\\s*[:=]\\s*([0-9.]+)`));
+  assert.ok(m?.[1], `ambient.js declares ${name}`);
+  return Number(m[1]);
+};
+const triple = (name: string): number[] => {
+  const m = ambient.match(new RegExp(`${name}\\s*[:=]\\s*\\[\\s*(\\d+),\\s*(\\d+),\\s*(\\d+)\\s*\\]`));
+  assert.ok(m, `ambient.js declares ${name}`);
+  return [Number(m![1]), Number(m![2]), Number(m![3])];
+};
+const ZONE = num('ZONE');
+const CAP = { halo: num('halo'), core: num('core'), hubCore: num('hubCore') };
+const HELP = triple('help');
+const NEAR = triple('NEAR');
+const hubPix = over(HELP.map((v) => Math.min(v + 45, 255)), CAP.hubCore * ZONE, over(HELP, CAP.halo * ZONE, NIGHT));
+const personPix = over([255, 255, 255], CAP.core * ZONE, over(NEAR, CAP.halo * ZONE, NIGHT));
 const skyWorst = L(hubPix) > L(personPix) ? hubPix : personPix;
 
 const light: Theme = { name: 'LIGHT', tokens: LIGHT, grounds: [['--bg', '--bg'], ['--surface', '--surface'], ['--surface-2', '--surface-2']] };
@@ -204,8 +219,8 @@ describe(`contrast: the night header (sky worst pixel under text ${skyWorst}, gl
   it('the sky worst pixel is the documented #202B35 (§2.3)', () => {
     assert.equal(skyWorst, '#202B35', `sky worst pixel computed as ${skyWorst}`);
   });
-  it('the dark glow centre is the documented #101D35 (§2.3)', () => {
-    assert.equal(glow, '#101D35', `glow centre computed as ${glow}`);
+  it('the dark glow centre is the documented #12213E (§2.3)', () => {
+    assert.equal(glow, '#12213E', `glow centre computed as ${glow}`);
   });
 });
 

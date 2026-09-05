@@ -9,7 +9,7 @@
    Light by default (paper), honouring prefers-color-scheme: dark, with a
    persisted one-tap override on html[data-theme]. The header is night in both
    themes and carries the constellation from /welcome/ as a still photograph.
-   Every ratio below was recomputed with test/contrast.mjs (WCAG 2.x relative
+   Every ratio below was recomputed with test/contrast.test.ts (WCAG 2.x relative
    luminance); "ground" pairs name the worst ground the token is ever read on.
    Discipline: no shadows (except the .lit ring), no radius on surfaces, no
    coloured links, no blur filters, nothing under 14 px, one accent per room. */
@@ -79,10 +79,10 @@
 }
 
 /* Dark: the same block twice, verbatim — once for devices that say dark and
-   have not been overridden, once for the explicit override. test/contrast.mjs
+   have not been overridden, once for the explicit override. test/contrast.test.ts
    and the BEGIN/END markers around each guard the two from drifting apart.
    Header, motion and accent-mapping tokens are not redefined: the header is
-   night in both themes. Worst dark ground is the glow centre #101D35 (§4.1). */
+   night in both themes. Worst dark ground is the glow centre #12213E (§4.1). */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     /* DARK-BEGIN */
@@ -92,13 +92,13 @@
   --surface: #0E1626;       /* the landing's --night-2.  --ink 15.80 */
   --surface-2: #162238;     /* --ink 13.90 */
 
-  --ink: #F5EFE4;           /* warm ivory (NEAR pulled toward paper): 17.00 on --bg, 15.80 --surface, 13.90 --surface-2, 14.69 on the glow centre #101D35 */
-  --muted: #B9B1A4;         /* 9.16 on --bg, 8.51 on --surface, 7.49 on --surface-2 (worst), 7.92 on #101D35 */
+  --ink: #F5EFE4;           /* warm ivory (NEAR pulled toward paper): 17.00 on --bg, 15.80 --surface, 13.90 --surface-2, 14.69 on the glow centre #12213E */
+  --muted: #B9B1A4;         /* 9.16 on --bg, 8.51 on --surface, 7.49 on --surface-2 (worst), 7.92 on #12213E */
 
   --border: #223049;        /* hairline, 1.37 on --surface */
-  --border-strong: #7D879A; /* 5.38 --bg, 5.00 --surface, 4.40 --surface-2, 4.65 on #101D35 */
+  --border-strong: #7D879A; /* 5.38 --bg, 5.00 --surface, 4.40 --surface-2, 4.65 on #12213E */
 
-  --help: #96C8FF;          /* scene.js [150,200,255] to the byte: 11.12 --bg, 10.33 --surface, 9.09 --surface-2, 9.61 #101D35 */
+  --help: #96C8FF;          /* scene.js [150,200,255] to the byte: 11.12 --bg, 10.33 --surface, 9.09 --surface-2, 9.61 #12213E */
   --group: #D0B0F6;         /* [208,176,246]: 10.40, 9.66, 8.50, 8.98 */
   --social: #7EE4AC;        /* [126,228,172]: 12.58, 11.69, 10.29, 10.87 */
   --good: var(--social);
@@ -107,21 +107,21 @@
   --social-hover: #A3EEC5;  /* 14.45 */
   --on-accent: #080D16;     /* 11.12 help, 10.40 group, 12.58 social */
 
-  --danger: #FFA398;        /* 10.14 --bg, 9.42 --surface, 8.29 --surface-2, 8.76 #101D35 */
+  --danger: #FFA398;        /* 10.14 --bg, 9.42 --surface, 8.29 --surface-2, 8.76 #12213E */
   --warnstar: #E8BC66;      /* 10.17 on --surface, 8.85 on --warnbg (border/glyph, floor 3) */
   --warnink: #F2D49C;       /* 10.99 on --warnbg, 12.63 on --surface */
   --warnbg: #2A2210;
 
-  --focus: #FFF7E8;         /* 18.27 --bg, 16.98 --surface, 14.94 --surface-2, 15.79 #101D35 */
+  --focus: #FFF7E8;         /* 18.27 --bg, 16.98 --surface, 14.94 --surface-2, 15.79 #12213E */
   --rule-signal: #FFF7E8;   /* the NEAR light crosses the rule */
     /* DARK-END */
   }
   /* The hero's first glow, frozen at rest and dimmed. A fixed pseudo-element,
      not background-attachment: fixed (iOS ignores the latter). Centre composites
-     to #101D35; every dark text token is >= 7.92:1 on it. It never animates. */
+     to #12213E; every dark text token is >= 7.53:1 on it. It never animates. */
   :root:not([data-theme="light"]) body::before {
     content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
-    background: radial-gradient(60% 40% at 50% -5%, rgba(30,58,110,.35) 0%, rgba(8,13,22,0) 70%);
+    background: radial-gradient(72% 56% at 50% 2%, rgba(30,58,110,.45) 0%, rgba(8,13,22,0) 70%);
   }
   /* Light glyphs on night bloom a little; a hair more tracking on body copy. */
   :root:not([data-theme="light"]) body { letter-spacing: 0.005em; }
@@ -134,13 +134,13 @@
   --surface: #0E1626;       /* the landing's --night-2.  --ink 15.80 */
   --surface-2: #162238;     /* --ink 13.90 */
 
-  --ink: #F5EFE4;           /* warm ivory (NEAR pulled toward paper): 17.00 on --bg, 15.80 --surface, 13.90 --surface-2, 14.69 on the glow centre #101D35 */
-  --muted: #B9B1A4;         /* 9.16 on --bg, 8.51 on --surface, 7.49 on --surface-2 (worst), 7.92 on #101D35 */
+  --ink: #F5EFE4;           /* warm ivory (NEAR pulled toward paper): 17.00 on --bg, 15.80 --surface, 13.90 --surface-2, 14.69 on the glow centre #12213E */
+  --muted: #B9B1A4;         /* 9.16 on --bg, 8.51 on --surface, 7.49 on --surface-2 (worst), 7.92 on #12213E */
 
   --border: #223049;        /* hairline, 1.37 on --surface */
-  --border-strong: #7D879A; /* 5.38 --bg, 5.00 --surface, 4.40 --surface-2, 4.65 on #101D35 */
+  --border-strong: #7D879A; /* 5.38 --bg, 5.00 --surface, 4.40 --surface-2, 4.65 on #12213E */
 
-  --help: #96C8FF;          /* scene.js [150,200,255] to the byte: 11.12 --bg, 10.33 --surface, 9.09 --surface-2, 9.61 #101D35 */
+  --help: #96C8FF;          /* scene.js [150,200,255] to the byte: 11.12 --bg, 10.33 --surface, 9.09 --surface-2, 9.61 #12213E */
   --group: #D0B0F6;         /* [208,176,246]: 10.40, 9.66, 8.50, 8.98 */
   --social: #7EE4AC;        /* [126,228,172]: 12.58, 11.69, 10.29, 10.87 */
   --good: var(--social);
@@ -149,18 +149,18 @@
   --social-hover: #A3EEC5;  /* 14.45 */
   --on-accent: #080D16;     /* 11.12 help, 10.40 group, 12.58 social */
 
-  --danger: #FFA398;        /* 10.14 --bg, 9.42 --surface, 8.29 --surface-2, 8.76 #101D35 */
+  --danger: #FFA398;        /* 10.14 --bg, 9.42 --surface, 8.29 --surface-2, 8.76 #12213E */
   --warnstar: #E8BC66;      /* 10.17 on --surface, 8.85 on --warnbg (border/glyph, floor 3) */
   --warnink: #F2D49C;       /* 10.99 on --warnbg, 12.63 on --surface */
   --warnbg: #2A2210;
 
-  --focus: #FFF7E8;         /* 18.27 --bg, 16.98 --surface, 14.94 --surface-2, 15.79 #101D35 */
+  --focus: #FFF7E8;         /* 18.27 --bg, 16.98 --surface, 14.94 --surface-2, 15.79 #12213E */
   --rule-signal: #FFF7E8;   /* the NEAR light crosses the rule */
     /* DARK-END */
 }
 :root[data-theme="dark"] body::before {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
-  background: radial-gradient(60% 40% at 50% -5%, rgba(30,58,110,.35) 0%, rgba(8,13,22,0) 70%);
+  background: radial-gradient(72% 56% at 50% 2%, rgba(30,58,110,.45) 0%, rgba(8,13,22,0) 70%);
 }
 :root[data-theme="dark"] body { letter-spacing: 0.005em; }
 
@@ -185,6 +185,11 @@ html[data-room="social"] { --accent: var(--social); --accent-hover: var(--social
 @media (forced-colors: active) {
   #sky { display: none; }
   body::before, :root[data-theme="dark"] body::before, :root:not([data-theme="light"]) body::before { display: none; }
+  /* Background-only signals are stripped to Canvas; give each a border or an outline. */
+  nav.main a .mark, .room .mark, .room .dot, .arrived::before, main h1::after { forced-color-adjust: none; background: CanvasText; }
+  nav.main a[aria-current="page"] { text-decoration: underline 3px; }
+  .room.lit { outline: 3px solid Highlight; outline-offset: 2px; }
+  #toast { border: 2px solid CanvasText; }
 }
 
 /* -------------------------------------------------------------------- base */
@@ -247,7 +252,7 @@ header.top {
 .top form button:hover, .top #account button:hover:not(:disabled), .rooms-toggle:hover { border-color: var(--top-ink); }
 .top #account button.primary { background: var(--top-ink); color: var(--top-bg); border-color: var(--top-ink); }
 .top #account button.primary:hover:not(:disabled) { background: var(--top-brand); border-color: var(--top-brand); }
-.top #account button.quiet { border-color: transparent; color: var(--top-muted); background: transparent; }
+.top #account button.quiet { border-color: var(--top-border); color: var(--top-ink); background: transparent; }
 .top #account button.quiet:hover { color: var(--top-ink); background: rgba(255,255,255,.08); border-color: transparent; }
 .rooms-toggle { display: none; }
 
@@ -291,7 +296,7 @@ h1 {
 }
 main h1 { font-size: 46px; line-height: 1.04; letter-spacing: -0.02em; margin: 6px 0 26px; }
 main h1::after {
-  content: ""; display: block; width: 72px; height: 3px; margin-top: 20px;
+  content: ""; display: block; width: 120px; height: 3px; margin-top: 22px;
   background: var(--accent); transform-origin: left;
 }
 html[data-route="home"] main h1 { margin: 0 0 18px; }
@@ -340,16 +345,31 @@ h3 { font-family: var(--body); font-size: 20px; line-height: 1.3; font-weight: 6
   .layout { grid-template-columns: 17rem minmax(0, 1fr); }
   .rail { position: sticky; top: 74px; max-height: calc(100vh - 74px); overflow-y: auto; }
   #roomsClose { display: none; }
-  main h1 { font-size: 60px; line-height: 1.02; }
+  main h1 { font-size: 60px; line-height: 1.02; margin-top: 18px; }
+  html[data-route="home"] main h1 { margin: 16px 0 18px; }
+  html[data-route="post"] main h1, html[data-route="person"] main h1 { font-size: 44px; line-height: 1.08; }
+  main h1::after { width: 160px; }
+  .brand { font-size: 36px; }
+  /* Air is the cheapest cinema there is; the 8 px clearance is exceeded either way. */
+  .cats { gap: 18px 20px; }
+  .cat { padding: 22px 20px 24px; }
+}
+@media (min-width: 1100px) {
+  /* System titles only; a person's own post title stays capped at 44. */
+  main h1 { font-size: 72px; line-height: 1.0; }
   html[data-route="post"] main h1, html[data-route="person"] main h1 { font-size: 44px; line-height: 1.08; }
 }
 @media (max-width: 899px) {
   .rooms-toggle { display: inline-flex; padding: 10px 14px; }
   .rail {
     position: fixed; inset: 0; z-index: 40; overflow-y: auto; border-right: 0;
-    transform: translateX(-100%); transition: transform var(--d-2) var(--ease-out);
+    transform: translateX(-100%);
+    /* visibility keeps the closed sheet out of the tab order and the
+       accessibility tree; it flips after the slide so the exit still plays. */
+    visibility: hidden;
+    transition: transform var(--d-2) var(--ease-out), visibility 0s linear var(--d-2);
   }
-  .rail.open { transform: none; }
+  .rail.open { transform: none; visibility: visible; transition: transform var(--d-2) var(--ease-out); }
 }
 
 /* ------------------------------------------------------------------ blocks */
@@ -377,8 +397,10 @@ button.primary {
   background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
 }
 button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
-button.quiet { border-color: transparent; background: transparent; color: var(--muted); padding: 12px 14px; }
-button.quiet:hover { color: var(--ink); background: var(--surface-2); border-color: transparent; }
+/* Quiet: still a button. A bare word reads as a caption to a first-time reader,
+   so it keeps the 2 px edge and only drops the fill. */
+button.quiet { border-color: var(--border-strong); background: transparent; color: var(--ink); padding: 12px 16px; }
+button.quiet:hover { color: var(--ink); background: var(--surface-2); border-color: var(--ink); }
 /* Pressed ("Say thanks" given): an inverted fill, read by luminance, not hue. */
 button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 button.on:hover:not(:disabled) { background: var(--ink); color: var(--bg); border-color: var(--ink); }
@@ -409,7 +431,10 @@ label.toggle input { width: 26px; height: 26px; min-height: 0; flex: none; accen
    colour, and a permanent → glyph — the edge the person learned to look for. */
 .cats { display: grid; gap: 10px 14px; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
 .cat {
-  display: block; text-align: left; width: 100%; position: relative;
+  /* flex column, not block: a button centres its content vertically whatever
+     display says, which floated one-line titles away from their arrow. */
+  display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
+  text-align: left; width: 100%; position: relative;
   background: var(--surface); color: var(--ink);
   border: 0; border-top: 3px solid var(--kind, var(--border-strong)); border-bottom: 1px solid var(--border);
   border-radius: 0; padding: 20px 18px 22px; min-height: 128px;
@@ -426,12 +451,12 @@ label.toggle input { width: 26px; height: 26px; min-height: 0; flex: none; accen
 /* The glyph has an empty alt so it never joins the accessible name. */
 .cat .nm::after {
   content: "→" / ""; position: absolute; right: 18px; top: 18px;
-  font: 400 24px/1 var(--body); color: var(--kind, var(--ink));
+  font: 400 26px/1 var(--body); color: var(--kind, var(--ink)); opacity: .9;
 }
 .cat .hn { font-size: 17px; line-height: 1.5; color: var(--muted); font-weight: 400; display: block; }
 .cat .ct { font-size: 16px; line-height: 1.5; color: var(--muted); font-weight: 400; display: block; margin-top: 8px; font-variant-numeric: tabular-nums; }
 
-.cat.start { border-top: 3px dashed var(--border-strong); background: var(--surface-2); }
+.cat.start { border-top: 3px solid var(--accent); background: var(--surface-2); }
 .pro {
   display: inline-flex; flex-direction: column; gap: 2px; padding: 10px 14px;
   border: 1px solid var(--border-strong); border-radius: 4px; background: var(--surface);
@@ -450,13 +475,18 @@ label.toggle input { width: 26px; height: 26px; min-height: 0; flex: none; accen
 }
 .post:hover:not(:disabled), .post:focus-visible { border-color: var(--border-strong); }
 .post:hover .t, .post:focus-visible .t { text-decoration: underline 2px; text-underline-offset: 4px; }
-.post .t { display: block; font: 400 22px/1.2 var(--display); letter-spacing: 0; margin: 0 0 6px; color: var(--ink); }
+.post .t { display: block; font: 400 22px/1.2 var(--display); letter-spacing: 0; margin: 0 0 6px; color: var(--ink); padding-right: 36px; }
+.post::after {
+  content: "→" / ""; position: absolute; right: 18px; top: 16px;
+  font: 400 22px/1 var(--body); color: var(--muted); opacity: .9;
+}
 .post .ex {
   color: var(--muted); font-size: 17px; line-height: 1.55; margin: 0 0 8px; font-weight: 400;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .who { font-size: 16px; line-height: 1.5; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-variant-numeric: tabular-nums; }
-.who a { font-weight: 600; }
+/* A name is a standalone target, not a link in prose: a 48 px hit box with no change to the row. */
+.who a { font-weight: 600; display: inline-block; padding: 12px 0; margin: -12px 0; }
 .body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 18px; line-height: 1.6; margin: 12px 0 0; }
 
 .tag {
@@ -486,8 +516,8 @@ label.toggle input { width: 26px; height: 26px; min-height: 0; flex: none; accen
 }
 
 /* ------------------------------------------------------------------ people */
-.people { display: grid; gap: 10px 14px; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
-.person { background: var(--surface); border-top: 3px solid var(--border-strong); border-bottom: 1px solid var(--border); border-radius: 0; padding: 20px 18px; }
+.people { display: grid; gap: 10px 14px; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); align-items: start; }
+.person { background: var(--surface); border-top: 3px solid var(--accent); border-bottom: 1px solid var(--border); border-radius: 0; padding: 20px 18px; }
 /* The name is the card's link; a 24 px line is not a tap target (§4.1). */
 .person h3 a { display: inline-flex; align-items: center; min-height: var(--tap); }
 .free { color: var(--good); font-weight: 600; font-size: 16px; line-height: 1.5; }
@@ -540,6 +570,12 @@ dialog h2 { margin: 0 0 12px; font-size: 26px; line-height: 1.15; letter-spacing
 
 @media (max-width: 559px) {
   main { padding: 28px 16px 96px; }
+  /* A two-row header leaves the whole strip under text zones; what remains
+     reads as dust on the panel. On a phone the header is honest night. */
+  #sky { display: none; }
+  /* Six short tabs in two rows beat an invisible horizontal scroll. */
+  nav.main ul { flex-wrap: wrap; overflow-x: visible; gap: 4px 8px; }
+  nav.main a { padding: 0 10px; }
   main h1 { font-size: 36px; line-height: 1.06; letter-spacing: -0.01em; }
   html[data-route="post"] main h1, html[data-route="person"] main h1 { font-size: 30px; line-height: 1.08; letter-spacing: -0.015em; }
   main h1 + .hint { font-size: 20px; }
