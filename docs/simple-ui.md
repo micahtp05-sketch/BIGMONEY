@@ -139,6 +139,15 @@ Answer yes to all fifteen, or it does not ship.
 
 ## 6. Audit of the current build
 
+**Re-audited 2026-09-05 with the cinematic rework.** Three live §4 misses were
+found and fixed in passing: `.rail h2` at 13 px (→ 14), the header's control
+border at 2.82:1 (→ `#727A88`, 4.50:1), and 0 px clearance between adjacent
+`.cats` rows and `.post` cards (→ 10 px / 8 px). Every text/ground pair is now
+asserted by `test/contrast.test.ts`, which reads the shipped stylesheet; the
+mechanical items of §5 (8, 9, 11) are asserted there too. The original audit
+below is kept as the record of the pre-rewrite state.
+
+
 **Audited 2026-08-31 against commit `20e81c9` — the pre-rewrite state.**
 The categories and the frontend are being rewritten as this is written, so line
 numbers and strings below describe the build *before* those rewrites. Any item

@@ -18,7 +18,42 @@ const state = {
   unreadHellos: 0,
   queueSize: 0,
   account: null,
+  lit: null,            // { slug, until } — the rail room glowing for a live event
 };
+
+// ------------------------------------------------------- motion + live state
+
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+let sky = null;                 // set by the dynamic import in start()
+let lastHash = null;            // the hash show() last rendered
+let transitioning = false;
+let showSeq = 0;                // every show() takes a ticket; a deferred swap only runs if its ticket is still the newest
+let cutTimer = 0;               // the timer that strips .cut — cleared on the next navigation so a fast second cut is not cut short      // a view transition is in flight
+let stagedCard = null;          // the .cat/.post the person tapped, named 'stage' until show() runs
+let live = null;                // { id, kind, slug } set by the stream just before it calls route()
+let pendingChrome = { route: 'home', room: null };   // applied to <html> inside the swap, so the accent flips at the cut
+const DEPTH = (h) => h === '#/' ? 0
+  : /^#\/(p|u|plan|people)\//.test(h) ? 2 : 1;
+
+function stage(node, titleSel) {
+  if (reduced.matches || typeof document.startViewTransition !== 'function') return;
+  node.style.viewTransitionName = 'stage';
+  node.querySelector(titleSel)?.style.setProperty('view-transition-name', 'hero-title');
+  stagedCard = node;
+}
+function clearStage() {
+  for (const n of document.querySelectorAll('[style*="view-transition-name"]')) n.style.viewTransitionName = '';
+  stagedCard = null;
+}
+function cardFor(hash) {
+  const sel = hash.startsWith('#/c/') ? `.cat[data-slug="${CSS.escape(decodeURIComponent(hash.slice(4)))}"]`
+            : hash.startsWith('#/p/') ? `.post[data-id="${CSS.escape(decodeURIComponent(hash.slice(4)))}"]` : null;
+  const node = sel && view().querySelector(sel);
+  if (!node) return null;
+  const r = node.getBoundingClientRect();
+  return r.bottom > 0 && r.top < window.innerHeight ? node : null;
+}
+function renderShell() { renderNav(); renderRooms(); }
 
 // ---------------------------------------------------------------- utilities
 
@@ -201,7 +236,7 @@ function postCard(post) {
     ...post.tags.map((t) => el('span', { class: 'tag', text: t })),
   );
   const answers = post.replyCount === 1 ? '1 answer' : `${post.replyCount} answers`;
-  return el('button', { class: 'post', onclick: () => go(`#/p/${post.id}`) },
+  return el('button', { class: 'post', 'data-id': post.id, onclick: (e) => { stage(e.currentTarget, '.t'); go(`#/p/${post.id}`); } },
     el('span', { class: 't', text: post.title }),
     el('span', { class: 'ex', text: post.body }),
     el('span', { class: 'who' },
@@ -220,18 +255,19 @@ function renderAccount() {
   host.replaceChildren();
   if (!state.me) {
     host.append(el('button', { class: 'primary', text: 'Sign in', onclick: () => go('#/in') }));
-    return;
+  } else {
+    host.append(el('button', {
+      class: 'quiet', text: 'Sign out',
+      onclick: async () => {
+        await api('/auth/logout', { method: 'POST' });
+        state.me = null;
+        state.unreadHellos = 0;
+        renderAccount(); renderNav(); renderRooms(); go('#/');
+        say('You are signed out.');
+      },
+    }));
   }
-  host.append(el('button', {
-    class: 'quiet', text: 'Sign out',
-    onclick: async () => {
-      await api('/auth/logout', { method: 'POST' });
-      state.me = null;
-      state.unreadHellos = 0;
-      renderAccount(); renderNav(); renderRooms(); go('#/');
-      say('You are signed out.');
-    },
-  }));
+  sky?.redraw();   // the header's boxes changed, so the sky's text zones did too
 }
 
 /**
@@ -247,10 +283,13 @@ function renderRooms() {
   const here = window.location.hash || '#/';
 
   const room = (c) => el('button', {
-    class: 'room',
+    class: 'room' + (state.lit?.slug === c.slug ? ' lit' : ''),
+    'data-slug': c.slug,
+    'data-kind': c.kind,
     'aria-current': here === `#/c/${c.slug}` ? 'true' : null,
     onclick: () => { closeRooms(); go(`#/c/${c.slug}`); },
   },
+    here === `#/c/${c.slug}` ? el('span', { class: 'mark', 'aria-hidden': 'true' }) : null,
     el('span', { class: `dot ${c.kind}` }),
     el('span', { text: c.name }),
     isHelp(c.kind) && c.professionals
@@ -301,7 +340,8 @@ function renderNav() {
   host.replaceChildren(...items.map(([href, label, badge]) => el('li', {},
     el('a', { href, 'aria-current': here === href ? 'page' : null },
       label,
-      badge ? el('span', { class: 'badge', text: String(badge) }) : null),
+      badge ? el('span', { class: 'badge', text: String(badge) }) : null,
+      here === href ? el('span', { class: 'mark', 'aria-hidden': 'true' }) : null),
   )));
 }
 
@@ -313,10 +353,87 @@ function replaceKids(host, ...nodes) {
   host.replaceChildren(...nodes.flat().filter(Boolean));
 }
 
+/**
+ * The one choke point every view calls. Swaps the page, re-renders nav and
+ * rooms, applies the route/room attributes to <html>, and — only when the hash
+ * actually changed — plays the title card (.cut) inside a view transition.
+ * A same-hash re-render (the live stream) swaps plainly and marks the node
+ * that just arrived.
+ */
 function show(...nodes) {
-  replaceKids(view(), ...nodes);
-  window.scrollTo(0, 0);
+  const host = view();
+  // A view transition defers the swap by a frame or two. If another show()
+  // lands in that gap — a live update re-rendering the room while the hash
+  // has already moved on to the post — the deferred swap would overwrite the
+  // newer, correct view with the older one. The ticket makes it stand down.
+  const seq = ++showSeq;
+  const hash = window.location.hash || '#/';
+  const navigating = hash !== lastHash;
+  const from = lastHash;
+  lastHash = hash;
+  if (navigating) live = null;
+
+  const swap = () => {
+    replaceKids(host, ...nodes);
+    const html = document.documentElement;
+    html.dataset.route = pendingChrome.route;
+    if (pendingChrome.room) html.dataset.room = pendingChrome.room; else delete html.dataset.room;
+    renderShell();
+    window.scrollTo(0, 0);
+    host.classList.remove('cut', 'staged');
+    clearTimeout(cutTimer);
+    if (navigating && !reduced.matches) { void host.offsetWidth; host.classList.add('cut'); cutTimer = setTimeout(() => host.classList.remove('cut', 'staged'), 1000); }
+    if (!navigating && live) markArrived(host);
+  };
+
+  const pushIn = Boolean(stagedCard && document.contains(stagedCard));
+  const canMorph = navigating && !reduced.matches && typeof document.startViewTransition === 'function' && !transitioning;
+  if (!canMorph) { clearStage(); swap(); return; }
+
+  const pullOut = !pushIn && from !== null && DEPTH(hash) < DEPTH(from);
+  if (pullOut) { host.style.viewTransitionName = 'stage'; host.querySelector('h1')?.style.setProperty('view-transition-name', 'hero-title'); }
+
+  transitioning = true;
+  const t = document.startViewTransition(() => {
+    if (seq !== showSeq) return;   // stale: a newer show() has already rendered the right view
+    swap();
+    host.style.viewTransitionName = '';
+    if (pushIn && host.scrollHeight <= 3 * window.innerHeight) {
+      host.style.viewTransitionName = 'stage';
+      host.querySelector('h1')?.style.setProperty('view-transition-name', 'hero-title');
+      host.classList.add('staged');
+    } else if (pullOut) {
+      const back = cardFor(from);
+      if (back) { back.style.viewTransitionName = 'stage'; back.querySelector('.nm, .t')?.style.setProperty('view-transition-name', 'hero-title'); }
+    }
+  });
+  t.finished.finally(() => { transitioning = false; clearStage(); });
 }
+
+/** After a same-page live re-render: the node the event was about gets a rule and the word New. */
+function markArrived(host) {
+  const node = live.id ? host.querySelector(`[data-id="${CSS.escape(String(live.id))}"]`) : null;
+  live = null;
+  if (!node) return;
+  node.classList.add('arrived');
+  node.querySelector('.who')?.append(el('span', { class: 'tag new', text: 'New' }));
+}
+function signalRule() {
+  if (reduced.matches) return;
+  const m = view();
+  m.classList.remove('signal'); void m.offsetWidth; m.classList.add('signal');
+  setTimeout(() => m.classList.remove('signal'), 950);
+}
+function litRoom(slug) {
+  if (!slug) return;
+  state.lit = { slug, until: Date.now() + 1200 };
+  document.querySelector(`.room[data-slug="${CSS.escape(slug)}"]`)?.classList.add('lit');
+  setTimeout(() => {
+    if (state.lit?.slug === slug) state.lit = null;
+    document.querySelector(`.room[data-slug="${CSS.escape(slug)}"]`)?.classList.remove('lit');
+  }, 1200);
+}
+function arrive(kind, slug, id) { sky?.pulse(kind); litRoom(slug); live = { id, kind, slug }; }
 
 function signInFirst(what) {
   if (state.me) return false;
@@ -341,7 +458,7 @@ function viewHome() {
     const count = trade
       ? (c.professionals === 1 ? '1 checked professional' : `${c.professionals} checked professionals`)
       : (c.threadCount === 1 ? '1 post' : `${c.threadCount} posts`);
-    return el('button', { class: `cat ${c.kind}`, onclick: () => go(`#/c/${c.slug}`) },
+    return el('button', { class: `cat ${c.kind}`, 'data-slug': c.slug, onclick: (e) => { stage(e.currentTarget, '.nm'); go(`#/c/${c.slug}`); } },
       el('span', { class: 'nm', text: c.name }),
       el('span', { class: 'hn', text: c.description }),
       el('span', { class: 'ct', text: count + (c.startedBy ? ` · started by ${c.startedBy.displayName}` : '') }),
@@ -551,7 +668,7 @@ function messageCard(post) {
     field.focus();
   });
 
-  return el('div', { class: 'msg' },
+  return el('div', { class: 'msg', 'data-id': post.id },
     who(post.author, post.createdAt, post.authorTopics),
     // A chat line's title is derived from its own first words, so showing it
     // would just repeat the message. A planned get-together has a real title,
@@ -713,6 +830,7 @@ function viewPlan(slug) {
 
 async function viewPost(id) {
   const { thread, replies, rsvps } = await api(`/threads/${encodeURIComponent(id)}`);
+  pendingChrome.room = thread.channelKind;
   const help = isHelp(thread.channelKind);
   const parts = [
     el('p', { class: 'who' }, el('a', { href: `#/c/${thread.channelSlug}`, text: `Back to ${thread.channelName}` })),
@@ -753,7 +871,7 @@ async function viewPost(id) {
 }
 
 function answerNode(thread, reply) {
-  const node = el('div', { class: `answer${reply.accepted ? ' worked' : ''}` },
+  const node = el('div', { class: `answer${reply.accepted ? ' worked' : ''}`, 'data-id': reply.id },
     reply.accepted ? el('p', { style: 'margin:0 0 6px' }, el('span', { class: 'tag worked', text: 'This is the answer that worked' })) : null,
     who(reply.author, reply.createdAt, reply.authorTopics),
     el('p', { class: 'body', text: reply.body }),
@@ -1819,8 +1937,19 @@ async function route() {
 
 async function renderRoute() {
   const hash = window.location.hash || '#/';
-  renderNav();
-  renderRooms();
+  // Nav and rooms are re-rendered inside show()'s swap (renderShell), so the
+  // marks glide with the same cut as the page. Decide the chrome here; show()
+  // applies it to <html> at the moment of the swap.
+  const route = hash === '#/' ? 'home'
+    : hash.startsWith('#/c/') ? 'room'
+    : hash.startsWith('#/p/') ? 'post'
+    : hash.startsWith('#/u/') ? 'person'
+    : 'other';
+  const roomSlug = hash.startsWith('#/c/') ? decodeURIComponent(hash.slice(4))
+    : hash.startsWith('#/plan/') ? decodeURIComponent(hash.slice(7))
+    : null;
+  const room = roomSlug !== null ? (state.categories.find((c) => c.slug === roomSlug)?.kind ?? null) : null;
+  pendingChrome = { route, room };
   try {
     if (hash.startsWith('#/c/')) return await viewCategory(decodeURIComponent(hash.slice(4)));
     if (hash.startsWith('#/p/')) return await viewPost(decodeURIComponent(hash.slice(4)));
@@ -1855,12 +1984,15 @@ function connectStream() {
     const data = JSON.parse(event.data);
     const category = state.categories.find((c) => c.id === data.channelId);
     if (category) category.threadCount += 1;
-    if (hash() === `#/c/${category?.slug}` || hash() === '#/') route();
+    arrive(category?.kind ?? 'help', category?.slug, data.threadId);
+    if (hash() === `#/c/${category?.slug}` || hash() === '#/') { signalRule(); route(); } else live = null;
   });
   stream.addEventListener('reply.created', (event) => {
     const data = JSON.parse(event.data);
     const category = state.categories.find((c) => c.id === data.channelId);
-    if (hash() === `#/p/${data.threadId}` || hash() === `#/c/${category?.slug}`) route();
+    const onPost = hash() === `#/p/${data.threadId}`;
+    arrive(category?.kind ?? 'help', category?.slug, onPost ? data.replyId : data.threadId);
+    if (onPost || hash() === `#/c/${category?.slug}`) { signalRule(); route(); } else live = null;
   });
   stream.addEventListener('thread.updated', (event) => {
     const data = JSON.parse(event.data);
@@ -1872,12 +2004,14 @@ function connectStream() {
   stream.addEventListener('meetup.message', (event) => {
     const data = JSON.parse(event.data);
     if (!state.me || data.toUserId !== state.me.id) return;
+    sky?.pulse('social');
     if (hash() === `#/p/${data.threadId}`) route();
     else say('You have a new private message about a get-together.');
   });
   stream.addEventListener('wave.sent', (event) => {
     const data = JSON.parse(event.data);
     if (state.me && data.toUserId === state.me.id) {
+      sky?.pulse('social');
       state.unreadHellos += 1;
       renderNav();
       say('Somebody said hello to you.');
@@ -1933,6 +2067,21 @@ document.getElementById('roomsToggle')?.addEventListener('click', () => {
 document.getElementById('roomsClose')?.addEventListener('click', closeRooms);
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeRooms(); });
 
+// The theme: the OS decides unless the person has tapped the word-button once.
+// The choice is restored before first paint by the inline script in <head>.
+const THEME_KEY = 'commons-theme';
+const osDark = window.matchMedia('(prefers-color-scheme: dark)');
+const effectiveTheme = () => { const t = document.documentElement.dataset.theme; return t === 'light' || t === 'dark' ? t : (osDark.matches ? 'dark' : 'light'); };
+function labelTheme() { const b = document.getElementById('themeToggle'); if (b) b.textContent = effectiveTheme() === 'dark' ? 'Turn lights on' : 'Turn lights off'; }
+document.getElementById('themeToggle')?.addEventListener('click', () => {
+  const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem(THEME_KEY, next); } catch { /* private mode: the choice lasts the session */ }
+  labelTheme();
+});
+osDark.addEventListener('change', labelTheme);
+labelTheme();
+
 (async function start() {
   try {
     const { user, queueSize, account } = await api('/me');
@@ -1941,6 +2090,9 @@ document.addEventListener('keydown', (event) => { if (event.key === 'Escape') cl
     state.account = account;
   } catch { state.me = null; }
   renderAccount();
+  // The header sky. Never awaited and never a static import: a 404 or a throw
+  // leaves a solid night header and a working app.
+  import('/ambient.js').then((m) => { sky = m.startAmbient(document.getElementById('sky')); }).catch(() => {});
   await loadCategories();
   await loadHellos();
   await route();

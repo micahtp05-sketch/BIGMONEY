@@ -154,6 +154,11 @@ listed at the top of the matching room automatically — "Gas engineer" lands in
   directions. Posts and reviews already written stay exactly where they are, and a
   block never puts anybody beyond moderation. See
   [What a block does](#what-a-block-does-and-what-it-deliberately-does-not).
+- **A look that holds to the standard.** Every page opens like a title card, a room card
+  grows into its room, and the landing page's constellation lives in the app header and
+  lights up when somebody actually answers. Light by default, dark following the device,
+  one tap to switch. Every text pair is computed at 7:1 or better by a test that reads
+  the shipped stylesheet. See [What the look is for](#what-the-look-is-for).
 - **Live updates.** New threads, replies, RSVPs and presence changes arrive over SSE.
 - **Moderation.** Anyone can report, with a reason. Three distinct reporters hide
   something automatically; a moderator then rules on it, and that ruling sticks. See
@@ -408,6 +413,38 @@ The blocked person is not told, and the refusal they meet does not say who shut 
 door or distinguish a block from any other reason somebody cannot be reached. They do
 learn they cannot get through, which is the point; they do not get it confirmed that
 this particular person did it, which would be worth retaliating over.
+
+**What the look is for.** The landing page had already committed to a world — a night
+sky, a crowd of small lights, a line that appears when one of them speaks, a spark
+travelling from one person to another — and the app then cut to a paper form under a
+black bar. "One identity across site and app" was only half kept. The rework keeps it:
+every route opens the way a film opens, with one large line of Instrument Serif alone on
+the ground, a rule drawn under it in the room's colour, and only then the page; tapping a
+room card grows it into the room and going back shrinks the room into the card, so a
+person always knows where they are and how to get home; and the constellation lives, still
+as a photograph, inside the night header on every page, lighting up with one travelling
+point when the server says somebody answered, said hello or is coming — while the room's
+name in the rail glows and the new answer arrives with the word **New** beside it.
+
+Three things were argued rather than assumed. **Light by default.** Two of five judged
+directions wanted dark for continuity with the landing page; three argued light from the
+person `docs/simple-ui.md` names — presbyopic and cataract eyes scatter light, so ivory on
+black halates where ink on paper does not, and a dark glowing screen is what television has
+taught a nervous 70-year-old to associate with things going wrong. The mechanics settled
+it: no shipping browser reports "no preference" — an unset OS reports *light* — so "dark
+when unset" can only be built by overriding an explicit light choice. Dark follows
+`prefers-color-scheme` and a visible **Turn lights off** button in the rail head makes the
+night version one tap away, remembered across visits. **Nothing moves under body text.**
+The sky is confined to the header, still at rest, redrawn only on scroll or on an event,
+and drawn at a documented fraction of its brightness under any word so every header token
+still clears 7:1 against the brightest pixel it can produce. A full-page ambient canvas
+behind glass was proposed, scored highest for cinema, and failed the fit gate for exactly
+this. **The discipline is removal.** No shadows, no rounded surfaces, no coloured links, one
+accent per room lifted byte-for-byte from the constellation's hub colours; and every
+entrance animation has a visible resting state, so the reduced-motion kill switch can never
+hide anything. `test/contrast.test.ts` reads the shipped stylesheet — not a copy of its
+values — and fails on any body pair under 7:1, any drift between the two dark blocks, any
+font under 14 px, or any `outline: none`.
 
 **Why the state layer is a JSON file.** Reads are map lookups; writes mutate memory
 and schedule a debounced atomic replace (write to a temp file, then rename), so a

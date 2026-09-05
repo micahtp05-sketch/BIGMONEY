@@ -8,8 +8,8 @@
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "browser"],
   "orientation": "any",
-  "background_color": "#F5F5F2",
-  "theme_color": "#12558F",
+  "background_color": "#F6F1E8",
+  "theme_color": "#080D16",
   "categories": ["social", "lifestyle"],
   "lang": "en",
   "dir": "ltr",
@@ -19,7 +19,7 @@
     { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "Ask for help", "url": "/#/c/home-repair" },
+    { "name": "Ask for help", "url": "/#/c/plumbers" },
     { "name": "Get-togethers", "url": "/#/meet" },
     { "name": "People", "url": "/#/people" }
   ]

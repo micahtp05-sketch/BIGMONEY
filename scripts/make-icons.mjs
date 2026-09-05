@@ -65,7 +65,7 @@ function encodePng(width, height, rgba) {
 
 // ---------------------------------------------------------------- the mark
 
-const BRAND = [0x12, 0x55, 0x8f];   // --primary
+const BRAND = [0x08, 0x0d, 0x16];   // --top-bg: the night the landing page paints, three lights in it
 const WHITE = [0xff, 0xff, 0xff];
 
 /**

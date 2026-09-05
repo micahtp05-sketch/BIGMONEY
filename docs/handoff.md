@@ -21,6 +21,7 @@ It lives alongside a pre-existing price estimator (photo → comparable listings
 median estimate) which was in the repo before this work and is unchanged.
 
 - App at `/` · landing page at `/welcome/` · estimator at `/estimate/`
+- Looks like it is out of a film and reads at 7:1: see "What the look is for" in the README
 - Installs as a PWA on iPhone, Android, Mac and Windows
 
 ---
@@ -40,14 +41,15 @@ is no bundler, no lockfile churn, and why the client is plain ES modules.
 
 | Command | What it does | Needs |
 |---|---|---|
-| `npm test` | 152 unit + API tests | nothing, runs offline |
+| `npm test` | 258 unit + API tests, including 106 contrast pairs read from the shipped stylesheet | nothing, runs offline |
 | `npm run typecheck` | `tsc --noEmit` | nothing |
 | `npm run test:browser` | 23 interface checks | a running server + Playwright |
 | `npm run test:pwa` | 7 install checks | a running server + Playwright |
+| `npm run test:cinematic` | 7 checks on the cinematic layer: theme, sky, morph, live beat, reduced motion | a running server + Playwright |
 | `npm run seed:demo` | fills an empty instance via the public API | a running server |
 | `npm run icons` | regenerates app icons from source | nothing |
 
-**182 checks, all green.**
+**295 checks, all green** (258 + 23 + 7 + 7), and the 23 interface checks pass again under `prefers-reduced-motion: reduce`.
 
 ---
 
@@ -101,6 +103,15 @@ answers from a trade room, and a vanishing review would make blocking the
 cheapest way to clear a bad rating. A block never puts anybody beyond
 moderation, and the blocked person is never told who shut the door.
 
+**The film is in the frame, not the polarity.** Light by default, dark following
+the device, one visible tap to switch. The constellation lives in the header
+only, still at rest, drawn dim under any word so every header token clears 7:1
+against the brightest pixel it can make. Nothing moves under body text. A
+full-page sky behind glass scored highest for cinema and failed the fit gate;
+the reasoning is in the README under "What the look is for". The two things
+that carry the identity — the title card on every route and one light
+travelling one link when somebody actually speaks — are theme-independent.
+
 **Three reports are a holding action, not a verdict.** A moderator rules
 afterwards and the ruling sticks: keeping something clears the reports and it is
 never auto-hidden again, so the same three people cannot re-report their way
@@ -147,7 +158,7 @@ rules are in `docs/simple-ui.md`; packaging is in `docs/apps.md`.
 | Med | **Chat re-renders on live updates** | Loses scroll position and a half-typed message. |
 | Low | **Trade→room matching is string-based** | "Gas engineer" finds Heating & Gas; "Sparky" finds nothing. Fix is a picklist mapped to rooms. |
 | Low | **Search is a substring scan** | Over every thread, every time. |
-| Low | **Service worker version is manual** | Change `commons.js` without bumping `SHELL_VERSION` and returning users keep the old file. Currently `commons-shell-v4`. |
+| Low | **Service worker version is manual** | Change `commons.js` or `commons.css` without bumping `SHELL_VERSION` and returning users keep the old file. Currently `commons-shell-v5`. |
 | Low | **Accessibility specified, not audited** | `docs/simple-ui.md` sets a numeric floor and some of it is enforced by tests. No screen reader has touched it. |
 | Low | **Capacitor / Electron never built** | Scaffolded only; no Xcode, no Android SDK, no Electron binary in the build container. See `docs/apps.md`. |
 | Low | **eBay adapter never ran live** | Inherited from the pre-existing estimator, unchanged. |
@@ -173,10 +184,12 @@ Blocking, which used to be the top of this list, is built — see §3.
 src/community/          the platform: store, auth, routes, views, moderation, verify
 src/community/senders/  email + SMS adapters behind one CodeSender interface
 public/commons.js       the whole client, plain ES modules, no framework
+public/commons.css      the design system: tokens with computed ratios, type scale, motion
+public/ambient.js       the constellation inside the header, still until somebody speaks
 public/welcome/         landing page + the 3D constellation (canvas, no library)
 public/fonts/           the five faces shared by site and app
-test/                   152 offline tests
-test/browser/           30 checks that need a real browser
+test/                   258 offline tests, contrast.test.ts among them
+test/browser/           37 checks that need a real browser (ui, pwa, cinematic)
 docs/simple-ui.md       the interface standard the UI is held to
 docs/apps.md            what installs where, and what was never built
 scripts/seed-demo.mjs   fills an instance through the public API

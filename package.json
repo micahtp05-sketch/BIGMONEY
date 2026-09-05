@@ -16,7 +16,8 @@
     "seed:demo": "node scripts/seed-demo.mjs",
     "icons": "node scripts/make-icons.mjs",
     "desktop": "electron desktop/main.js",
-    "test:pwa": "node test/browser/pwa.mjs"
+    "test:pwa": "node test/browser/pwa.mjs",
+    "test:cinematic": "node test/browser/cinematic.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

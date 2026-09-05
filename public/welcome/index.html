@@ -21,12 +21,11 @@
   :root {
     --night: #080D16;
     --night-2: #0E1626;
-    --paper: #FAFAF8;
-    --paper-2: #F1F2EE;
-    --ink: #14171A;
-    --muted: #5A6068;
-    --faint: #8C929A;
-    --rule: #E2E3DF;
+    --paper: #F6F1E8;
+    --paper-2: #ECE5D8;
+    --ink: #0B0F17;
+    --muted: #434955;   /* 8.04:1 on --paper */
+    --rule: #D8D0C2;
     --sky: #6EA8FA;
     --help: #6EA8FA;
     --group: #C0A2EA;
@@ -39,7 +38,10 @@
   body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 18px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
   a { color: inherit; }
   :focus-visible { outline: 3px solid var(--sky); outline-offset: 3px; border-radius: 6px; }
-  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } @view-transition { navigation: none; } }
+  /* Tapping "Go to Commons" shrinks the wordmark into the app's header brand. */
+  @view-transition { navigation: auto; }
+  .hero h1 { view-transition-name: brand; }
 
   /* ---------------------------------------------------------------- header */
   .bar {
@@ -47,7 +49,7 @@
     display: flex; align-items: center; justify-content: space-between;
     padding: .7rem 1.5rem; gap: 1rem;
     background: rgba(8,13,22,.86); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-    border-bottom: 1px solid rgba(255,255,255,.12); color: #F2F5F9;
+    border-bottom: 1px solid #727A88; color: #F2F5F9;
     transform: translateY(-100%); transition: transform .35s ease;
   }
   .bar.show { transform: none; }
@@ -55,7 +57,7 @@
 
   @media (prefers-reduced-motion: reduce) { .bar { transition: none; } }
   .bar .wordmark { font-family: var(--display); font-size: 1.45rem; text-decoration: none; letter-spacing: -0.01em; }
-  .bar .pill { font-size: .92rem; font-weight: 600; text-decoration: none; padding: .55rem 1.05rem; border-radius: 999px; background: #F2F5F9; color: #0C1523; }
+  .bar .pill { font-size: 16px; font-weight: 600; text-decoration: none; padding: .55rem 1.05rem; border-radius: 4px; background: #F2F5F9; color: #0C1523; }
 
   /* ------------------------------------------------------------------ hero */
   .hero {
@@ -88,7 +90,7 @@
   .cta { display: flex; gap: .9rem; justify-content: center; flex-wrap: wrap; margin-top: 2.4rem; }
   .btn {
     display: inline-flex; align-items: center; min-height: 54px; padding: 0 1.7rem;
-    border-radius: 999px; font-weight: 600; font-size: 1.02rem; text-decoration: none;
+    border-radius: 4px; font-weight: 600; font-size: 1.02rem; text-decoration: none;
     border: 2px solid rgba(255,255,255,.26); color: #F2F5F9;
     backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
     transition: transform .18s ease, border-color .18s ease, background .18s ease;
@@ -96,23 +98,23 @@
   .btn.solid { background: #F2F5F9; color: #0C1523; border-color: #F2F5F9; }
   .btn:hover { border-color: #F2F5F9; transform: translateY(-1px); }
   @media (prefers-reduced-motion: reduce) { .btn { transition: none; } .btn:hover { transform: none; } }
-  .scroll-hint { position: absolute; bottom: 1.5rem; left: 0; right: 0; z-index: 2; text-align: center; color: #7F8FA6; font-size: .78rem; letter-spacing: .16em; text-transform: uppercase; }
+  .scroll-hint { position: absolute; bottom: 1.5rem; left: 0; right: 0; z-index: 2; text-align: center; color: #A9B8CC; font-size: 14px; letter-spacing: .16em; text-transform: uppercase; }
 
   /* -------------------------------------------------------------- sections */
   section { padding: clamp(4rem, 10vw, 7.5rem) 1.5rem; }
   .wrap { max-width: 64rem; margin: 0 auto; }
-  .eyebrow { font-size: .74rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); margin: 0 0 1rem; }
+  .eyebrow { font-size: 14px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin: 0 0 1rem; }
   h2 { font-family: var(--display); font-weight: 400; font-size: clamp(2.2rem, 5.2vw, 3.4rem); line-height: 1.04; margin: 0 0 1rem; letter-spacing: -0.015em; text-wrap: balance; max-width: 22ch; }
   .lede { color: var(--muted); max-width: 40ch; margin: 0; font-size: 1.12rem; }
 
   /* Four cards, so two by two — auto-fit left the fourth orphaned on wide screens. */
   .needs { display: grid; gap: 1.4rem; grid-template-columns: 1fr; margin-top: 3.2rem; }
   @media (min-width: 46rem) { .needs { grid-template-columns: 1fr 1fr; } }
-  .need { background: #fff; border: 1px solid var(--rule); border-radius: 14px; padding: 1.5rem 1.6rem 1.6rem; position: relative; overflow: hidden; }
-  .need::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; }
-  .need.h::before { background: var(--help); }
-  .need.g::before { background: var(--group); }
-  .need.s::before { background: var(--social); }
+  /* The app's slab: a surface fill, a 3 px rule on top in the room's colour. */
+  .need { background: #FFFDF9; border: 0; border-top: 3px solid; border-bottom: 1px solid var(--rule); border-radius: 0; padding: 1.5rem 1.6rem 1.6rem; position: relative; }
+  .need.h { border-top-color: var(--help); }
+  .need.g { border-top-color: var(--group); }
+  .need.s { border-top-color: var(--social); }
   .need h3 { font-family: var(--display); font-weight: 400; font-size: 1.7rem; margin: 0 0 .5rem; letter-spacing: -0.01em; }
   .need p { margin: 0; color: var(--muted); font-size: 1rem; line-height: 1.6; }
 
@@ -141,18 +143,18 @@
   .dark { background: var(--night); color: #E9EEF6; }
   .dark h2 { color: #FFF; }
   .dark .lede { color: #9FB0C6; }
-  .dark .eyebrow { color: #6C7A90; }
+  .dark .eyebrow { color: #A9B8CC; }
   .lines { display: grid; margin-top: 2.5rem; border-top: 1px solid rgba(255,255,255,.14); }
   .line { display: grid; gap: .3rem 2rem; grid-template-columns: 1fr; padding: 1.4rem 0; border-bottom: 1px solid rgba(255,255,255,.14); }
   @media (min-width: 40rem) { .line { grid-template-columns: 14rem 1fr; } }
   .line b { font-family: var(--display); font-weight: 400; font-size: 1.4rem; letter-spacing: -0.01em; }
   .line span { color: #A9B8CC; }
 
-  footer { padding: 3rem 1.5rem 4.5rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: .92rem; }
+  footer { padding: 3rem 1.5rem 4.5rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: 16px; }
   footer .wrap { display: flex; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap; align-items: baseline; }
   footer .wordmark { font-family: var(--display); font-size: 1.4rem; color: var(--ink); }
 
-  .reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s ease, transform .7s ease; }
+  .reveal { opacity: 0; transform: translateY(12px); transition: opacity .48s cubic-bezier(0.2,0.7,0.1,1), transform .48s cubic-bezier(0.2,0.7,0.1,1); }
   .reveal.in { opacity: 1; transform: none; }
   @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
 </style>
@@ -217,7 +219,7 @@
     </div>
     <div class="stage reveal">
       <div class="plate" id="plate">
-        <img src="/welcome/app.jpg" alt="The Commons home screen: six category cards under two headings, Ask for help and Meet people." width="1770" height="1290" loading="lazy">
+        <img src="/welcome/app.jpg" alt="The Commons home screen: a room for every trade, the groups people have started, and somewhere to just talk." width="1770" height="1290" loading="lazy">
       </div>
     </div>
   </div>
