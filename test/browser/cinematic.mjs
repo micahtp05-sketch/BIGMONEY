@@ -259,14 +259,16 @@ await step('exactly one h1 on every route, and .mark spans are aria-hidden', asy
 });
 
 await step('notifications: the card says the true state and never a raw error', async () => {
-  // No permission granted: the browser answers "denied" to the request, and
-  // the card must say so in plain words rather than fail or lie.
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  // Permission is granted up front so the starting state is the same on every
+  // machine: a headless Chromium on a CI runner starts with it *denied*, and the
+  // card then rightly says "Blocked" — which the second context checks below.
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, permissions: ['notifications'] });
   const p = await ctx.newPage();
   const errs = [];
   p.on('pageerror', (e) => errs.push(e.message));
   const u = Date.now().toString(36);
-  await p.request.post(`${B}/api/community/auth/signup`, { data: { handle: `pushui${u}`, displayName: 'Push', email: `pushui${u}@example.test`, phone: `+44771${String(Date.now() % 1000000).padStart(6, '0')}`, password: 'a-good-long-password' } });
+  const account = { handle: `pushui${u}`, displayName: 'Push', email: `pushui${u}@example.test`, phone: `+44771${String(Date.now() % 1000000).padStart(6, '0')}`, password: 'a-good-long-password' };
+  await p.request.post(`${B}/api/community/auth/signup`, { data: account });
   await p.goto(`${B}/#/you`);
   await p.reload({ waitUntil: 'networkidle' });
   await p.waitForSelector('#notifications');
@@ -284,13 +286,41 @@ await step('notifications: the card says the true state and never a raw error', 
   if (!(await p.$eval('#notifications button:has-text("Turn on notifications")', (b) => b.offsetParent !== null))) throw new Error('"Turn on notifications" is not visible');
   await on.click();
   await p.waitForTimeout(800);
+  // A headless browser has no push service to subscribe with; whatever happened,
+  // the card says one of its three true things and nobody sees a stack trace.
   const status1 = await p.$eval('#notifications p', (n) => n.textContent.trim());
   const hint = await p.$eval('#notifications p.hint', (n) => n.textContent.trim());
   if (!['Blocked in this browser.', 'On for this device.', 'Off on this device.'].includes(status1)) throw new Error(`after click the status read "${status1}"`);
   if (status1 === 'Blocked in this browser.' && !/browser settings/.test(hint)) throw new Error(`no way back offered: "${hint}"`);
-  if (/Error|TypeError|undefined|null/.test(hint)) throw new Error(`raw error shown: "${hint}"`);
+  const shown = await p.evaluate(() => Array.from(document.querySelectorAll('#toast, [role="status"], [aria-live]')).map((n) => n.textContent.trim()).join(' | '));
+  for (const text of [hint, shown]) {
+    if (/Error|TypeError|undefined|null|Registration failed|push service/.test(text)) throw new Error(`raw error shown: "${text}"`);
+  }
   if (errs.length) throw new Error(`pageerror: ${errs.join(' | ')}`);
   await ctx.close();
+
+  // The same person in a browser that has not granted anything. Chromium's
+  // answer differs by machine (undecided locally, denied on a CI runner); the
+  // card must be honest about whichever it is.
+  const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const p2 = await ctx2.newPage();
+  await p2.request.post(`${B}/api/community/auth/login`, { data: { handle: account.handle, password: account.password } });
+  await p2.goto(`${B}/#/you`);
+  await p2.reload({ waitUntil: 'networkidle' });
+  await p2.waitForSelector('#notifications');
+  const permission = await p2.evaluate(() => Notification.permission);
+  const status2 = await p2.$eval('#notifications p', (n) => n.textContent.trim());
+  const hint2 = await p2.$eval('#notifications p.hint', (n) => n.textContent.trim());
+  const onDrawn = await p2.$eval('#notifications button:has-text("Turn on notifications")', (b) => b.offsetParent !== null);
+  if (permission === 'denied') {
+    if (status2 !== 'Blocked in this browser.') throw new Error(`permission denied but the card read "${status2}"`);
+    if (onDrawn) throw new Error('"Turn on notifications" is offered while the browser has blocked them');
+    if (!/browser settings/.test(hint2)) throw new Error(`no way back offered: "${hint2}"`);
+  } else {
+    if (status2 !== 'Off on this device.') throw new Error(`permission ${permission} but the card read "${status2}"`);
+    if (!onDrawn) throw new Error('"Turn on notifications" is not visible');
+  }
+  await ctx2.close();
 });
 
 await step('notifications: the service worker handles push and a tap opens the page', async () => {

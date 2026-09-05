@@ -1866,7 +1866,11 @@ async function notificationsPanel() {
     try {
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') { paint(); return; }
-      current = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(config.publicKey) });
+      // The browser's own failure text ("Registration failed - push service
+      // error") is nobody's business; the server's sentences are already plain.
+      try {
+        current = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(config.publicKey) });
+      } catch { say('This browser could not set that up just now. Try again later.'); return; }
       await api('/push/subscribe', { method: 'POST', body: current.toJSON() });
       say('Notifications are on for this device.');
     } catch (error) { say(error.message || 'That did not work. Try again.'); }
