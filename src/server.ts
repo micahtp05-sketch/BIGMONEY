@@ -4,6 +4,9 @@ import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import { aggregate } from './aggregate.ts';
+import { communityRoutes } from './community/routes.ts';
+import { pushFromEnv } from './community/push.ts';
+import { sendersFromEnv } from './community/senders/index.ts';
 import { gatherListings, sourcesFromEnv } from './sources/index.ts';
 import type { EstimateResponse } from './types.ts';
 import { RefusalError, identifyItem } from './vision.ts';
@@ -11,7 +14,24 @@ import { RefusalError, identifyItem } from './vision.ts';
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const ACCEPTED = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
-export function buildServer() {
+/** Where Commons persists. Set COMMUNITY_DATA=:memory: to run without a file. */
+function communityDataPath(): string | null {
+  // An empty value means "unset" — .env files carry blank keys all the time,
+  // and silently running without persistence would be the worst reading of it.
+  const configured = process.env.COMMUNITY_DATA?.trim();
+  if (!configured) return fileURLToPath(new URL('../data/community.json', import.meta.url));
+  return configured === ':memory:' ? null : configured;
+}
+
+/** Signup cap, where 0 legitimately means "this instance is closed". */
+function signupsPerHour(): number | undefined {
+  const raw = process.env.COMMUNITY_SIGNUPS_PER_HOUR?.trim();
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+export async function buildServer() {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } });
   const anthropic = new Anthropic();
   const sources = sourcesFromEnv();
@@ -20,6 +40,32 @@ export function buildServer() {
   app.register(fastifyStatic, {
     root: fileURLToPath(new URL('../public', import.meta.url)),
   });
+  // An instance that boots happily and then fails on the first person to sign
+  // up is worse than one that refuses to boot: the failure surfaces at 3am, to
+  // a member, instead of at deploy time, to whoever deployed it.
+  const sender = sendersFromEnv();
+  // Push is optional: unset keys mean the client is told it is off, not a refusal.
+  const push = await pushFromEnv();
+  if (!sender && process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'No way to send one-time codes is configured, so nobody could confirm an ' +
+      'email address or a phone number. Set EMAIL_PROVIDER and/or SMS_PROVIDER ' +
+      '(see .env.example), or run without NODE_ENV=production to log codes to the console.',
+    );
+  }
+
+  app.register(
+    communityRoutes({
+      dataPath: communityDataPath(),
+      signupsPerHourPerIp: signupsPerHour(),
+      moderators: (process.env.COMMUNITY_MODERATORS ?? '').split(',').map((h) => h.trim()).filter(Boolean),
+      // Real providers when configured; otherwise the console sender, which
+      // logs codes in development and refuses to start in production.
+      sender: sender ?? undefined,
+      push: push ?? undefined,
+    }),
+    { prefix: '/api/community' },
+  );
 
   app.get('/api/health', async () => ({
     ok: true,
@@ -89,7 +135,7 @@ export function buildServer() {
 
 // Only listen when run directly, so tests can import buildServer().
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const app = buildServer();
+  const app = await buildServer();
   const port = Number(process.env.PORT ?? 3000);
   app.listen({ port, host: '0.0.0.0' }).catch((err) => {
     app.log.error(err);

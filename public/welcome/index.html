@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Commons — somebody nearby has done this before</title>
+<meta name="description" content="Somebody nearby has done this before. Rooms for every trade, groups you start yourselves, and company when you want it.">
+<meta name="theme-color" content="#080D16">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="preload" href="/fonts/instrument-serif.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/public-sans-400.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+  /* FONTS */
+  @font-face { font-family: "Instrument Serif"; font-style: normal; font-weight: 400; font-display: swap; src: url(/fonts/instrument-serif.woff2) format("woff2"); }
+  @font-face { font-family: "Instrument Serif"; font-style: italic; font-weight: 400; font-display: swap; src: url(/fonts/instrument-serif-italic.woff2) format("woff2"); }
+  @font-face { font-family: "Public Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url(/fonts/public-sans-400.woff2) format("woff2"); }
+  @font-face { font-family: "Public Sans"; font-style: normal; font-weight: 600; font-display: swap; src: url(/fonts/public-sans-600.woff2) format("woff2"); }
+  @font-face { font-family: "Public Sans"; font-style: normal; font-weight: 700; font-display: swap; src: url(/fonts/public-sans-700.woff2) format("woff2"); }
+  /* /FONTS */
+
+  :root {
+    --night: #080D16;
+    --night-2: #0E1626;
+    --paper: #F6F1E8;
+    --paper-2: #ECE5D8;
+    --ink: #0B0F17;
+    --muted: #434955;   /* 8.04:1 on --paper */
+    --rule: #D8D0C2;
+    --sky: #6EA8FA;
+    --help: #6EA8FA;
+    --group: #C0A2EA;
+    --social: #6FD79B;
+    --display: "Instrument Serif", "Iowan Old Style", Palatino, Georgia, serif;
+    --body: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 18px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  a { color: inherit; }
+  :focus-visible { outline: 3px solid var(--sky); outline-offset: 3px; border-radius: 6px; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } @view-transition { navigation: none; } }
+  /* Tapping "Go to Commons" shrinks the wordmark into the app's header brand. */
+  @view-transition { navigation: auto; }
+  .hero h1 { view-transition-name: brand; }
+
+  /* ---------------------------------------------------------------- header */
+  .bar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: .7rem 1.5rem; gap: 1rem;
+    background: rgba(8,13,22,.86); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid #727A88; color: #F2F5F9;
+    transform: translateY(-100%); transition: transform .35s ease;
+  }
+  .bar.show { transform: none; }
+  /* Over the dark section the light frosting reads as a grey slab; swap it. */
+
+  @media (prefers-reduced-motion: reduce) { .bar { transition: none; } }
+  .bar .wordmark { font-family: var(--display); font-size: 1.45rem; text-decoration: none; letter-spacing: -0.01em; }
+  .bar .pill { font-size: 16px; font-weight: 600; text-decoration: none; padding: .55rem 1.05rem; border-radius: 4px; background: #F2F5F9; color: #0C1523; }
+
+  /* ------------------------------------------------------------------ hero */
+  .hero {
+    position: relative; min-height: 100svh; display: grid; place-items: center;
+    background: var(--night); color: #F2F5F9; overflow: hidden; isolation: isolate;
+  }
+  #scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; z-index: 0; }
+  .hero::after {
+    content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    background:
+      radial-gradient(40% 28% at 50% 47%, rgba(8,13,22,.7) 0%, rgba(8,13,22,.25) 62%, rgba(8,13,22,0) 100%),
+      radial-gradient(90% 75% at 50% 50%, rgba(8,13,22,0) 45%, rgba(8,13,22,.6) 100%);
+  }
+  .hero-in { position: relative; z-index: 2; text-align: center; padding: 5rem 1.5rem 4rem; max-width: 48rem; }
+  .hero h1 {
+    font-family: var(--display); font-weight: 400; margin: 0;
+    font-size: clamp(4.4rem, 16vw, 10rem); line-height: .92; letter-spacing: -0.025em;
+    text-shadow: 0 2px 40px rgba(8,13,22,.9), 0 1px 6px rgba(8,13,22,.7);
+  }
+  .hero .motto {
+    font-family: var(--display); font-style: italic; font-weight: 400;
+    margin: 1.3rem auto 0; font-size: clamp(1.55rem, 4.4vw, 2.5rem); line-height: 1.12;
+    color: #F4F7FB; max-width: 22ch; letter-spacing: -0.005em;
+    text-shadow: 0 2px 30px rgba(8,13,22,.95), 0 1px 5px rgba(8,13,22,.85);
+  }
+  .hero .tag {
+    margin: 1.2rem auto 0; font-size: clamp(1rem, 2vw, 1.1rem); color: #A9B8CC;
+    max-width: 36ch; text-shadow: 0 1px 20px rgba(8,13,22,.95), 0 1px 4px rgba(8,13,22,.85);
+  }
+  .cta { display: flex; gap: .9rem; justify-content: center; flex-wrap: wrap; margin-top: 2.4rem; }
+  .btn {
+    display: inline-flex; align-items: center; min-height: 54px; padding: 0 1.7rem;
+    border-radius: 4px; font-weight: 600; font-size: 1.02rem; text-decoration: none;
+    border: 2px solid rgba(255,255,255,.26); color: #F2F5F9;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    transition: transform .18s ease, border-color .18s ease, background .18s ease;
+  }
+  .btn.solid { background: #F2F5F9; color: #0C1523; border-color: #F2F5F9; }
+  .btn:hover { border-color: #F2F5F9; transform: translateY(-1px); }
+  @media (prefers-reduced-motion: reduce) { .btn { transition: none; } .btn:hover { transform: none; } }
+  .scroll-hint { position: absolute; bottom: 1.5rem; left: 0; right: 0; z-index: 2; text-align: center; color: #A9B8CC; font-size: 14px; letter-spacing: .16em; text-transform: uppercase; }
+
+  /* -------------------------------------------------------------- sections */
+  section { padding: clamp(4rem, 10vw, 7.5rem) 1.5rem; }
+  .wrap { max-width: 64rem; margin: 0 auto; }
+  .eyebrow { font-size: 14px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin: 0 0 1rem; }
+  h2 { font-family: var(--display); font-weight: 400; font-size: clamp(2.2rem, 5.2vw, 3.4rem); line-height: 1.04; margin: 0 0 1rem; letter-spacing: -0.015em; text-wrap: balance; max-width: 22ch; }
+  .lede { color: var(--muted); max-width: 40ch; margin: 0; font-size: 1.12rem; }
+
+  /* Four cards, so two by two — auto-fit left the fourth orphaned on wide screens. */
+  .needs { display: grid; gap: 1.4rem; grid-template-columns: 1fr; margin-top: 3.2rem; }
+  @media (min-width: 46rem) { .needs { grid-template-columns: 1fr 1fr; } }
+  /* The app's slab: a surface fill, a 3 px rule on top in the room's colour. */
+  .need { background: #FFFDF9; border: 0; border-top: 3px solid; border-bottom: 1px solid var(--rule); border-radius: 0; padding: 1.5rem 1.6rem 1.6rem; position: relative; }
+  .need.h { border-top-color: var(--help); }
+  .need.g { border-top-color: var(--group); }
+  .need.s { border-top-color: var(--social); }
+  .need h3 { font-family: var(--display); font-weight: 400; font-size: 1.7rem; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+  .need p { margin: 0; color: var(--muted); font-size: 1rem; line-height: 1.6; }
+
+  .breadth { margin-top: 2.8rem; padding: 1.6rem 1.8rem; border-left: 3px solid var(--ink); }
+  .breadth p { margin: 0; font-family: var(--display); font-size: clamp(1.25rem, 2.6vw, 1.6rem); line-height: 1.35; max-width: 34ch; }
+
+  /* --------------------------------------------------------- how it works */
+  .steps { display: grid; gap: 1.2rem; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); margin-top: 2.6rem; }
+  .step { border-top: 1px solid var(--rule); padding-top: 1.1rem; }
+  .step b { display: block; font-family: var(--display); font-weight: 400; font-size: 1.5rem; margin-bottom: .3rem; }
+  .step span { color: var(--muted); font-size: 1rem; }
+
+  /* -------------------------------------------------- the tilted app plate */
+  .stage { perspective: 1600px; margin-top: 3rem; }
+  .plate {
+    transform: rotateX(var(--rx, 9deg)) rotateY(var(--ry, -12deg));
+    transform-style: preserve-3d; transition: transform .3s ease-out;
+    border-radius: 16px; overflow: hidden;
+    box-shadow: 0 2px 4px rgba(12,21,35,.10), 40px 70px 100px -50px rgba(12,21,35,.65);
+    border: 1px solid var(--rule); background: #fff;
+  }
+  @media (prefers-reduced-motion: reduce) { .plate { transition: none; transform: none; } }
+  .plate img { display: block; width: 100%; height: auto; }
+
+  /* ------------------------------------------------------------------ dark */
+  .dark { background: var(--night); color: #E9EEF6; }
+  .dark h2 { color: #FFF; }
+  .dark .lede { color: #9FB0C6; }
+  .dark .eyebrow { color: #A9B8CC; }
+  .lines { display: grid; margin-top: 2.5rem; border-top: 1px solid rgba(255,255,255,.14); }
+  .line { display: grid; gap: .3rem 2rem; grid-template-columns: 1fr; padding: 1.4rem 0; border-bottom: 1px solid rgba(255,255,255,.14); }
+  @media (min-width: 40rem) { .line { grid-template-columns: 14rem 1fr; } }
+  .line b { font-family: var(--display); font-weight: 400; font-size: 1.4rem; letter-spacing: -0.01em; }
+  .line span { color: #A9B8CC; }
+
+  footer { padding: 3rem 1.5rem 4.5rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: 16px; }
+  footer .wrap { display: flex; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap; align-items: baseline; }
+  footer .wordmark { font-family: var(--display); font-size: 1.4rem; color: var(--ink); }
+
+  .reveal { opacity: 0; transform: translateY(12px); transition: opacity .48s cubic-bezier(0.2,0.7,0.1,1), transform .48s cubic-bezier(0.2,0.7,0.1,1); }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
+</style>
+</head>
+<body>
+
+<div class="bar" id="bar" aria-hidden="true">
+  <a class="wordmark" href="#top">Commons</a>
+  <a class="pill" href="/">Open Commons</a>
+</div>
+
+<header class="hero" id="top">
+  <canvas id="scene" aria-hidden="true"></canvas>
+  <div class="hero-in">
+    <h1>Commons</h1>
+    <p class="motto">Somebody nearby has done this before.</p>
+    <p class="tag">Rooms for every trade. Groups you start yourselves. Company when you want it.</p>
+    <div class="cta">
+      <a class="btn solid" href="/">Go to Commons</a>
+      <a class="btn" href="#what">See what it does</a>
+    </div>
+  </div>
+  <p class="scroll-hint">Scroll</p>
+</header>
+
+<section id="what">
+  <div class="wrap">
+    <p class="eyebrow reveal">What it is for</p>
+    <h2 class="reveal">However small, however odd, somebody has met it before</h2>
+    <p class="lede reveal">Every dot behind the wordmark is a person &mdash; some of them electricians, plumbers, builders &mdash; and the lines are what appears between them when one of them speaks up. Nobody is asking us. They are talking to each other.</p>
+    <div class="needs">
+      <div class="need h reveal">
+        <h3>A room for every trade</h3>
+        <p>Electricians. Plumbers. Heating and gas. Builders and renovation. Landscapers. Roofers. Painters and decorators. Tech and wifi. Walk into the room, ask, and somebody who does it for a living answers &mdash; identity checked, listed at the top.</p>
+      </div>
+      <div class="need g reveal">
+        <h3>Groups you start yourselves</h3>
+        <p>A Sunday book club. A bike club. Three people who want to walk on Tuesdays and begin something. Name it, say what it is for, and it is yours to run.</p>
+      </div>
+      <div class="need g reveal">
+        <h3>Groups already running</h3>
+        <p>Whatever the people nearby have started. Cooking, cycling, reading, walking &mdash; and whatever is started next week that nobody has thought of yet.</p>
+      </div>
+      <div class="need s reveal">
+        <h3>Company, on any terms</h3>
+        <p>Say hello at 3am. Walk round the park slowly. Take a seat at somebody's table on Sunday. Say one small thing about your day so the week does not pass unnoticed.</p>
+      </div>
+    </div>
+    <div class="breadth reveal">
+      <p>Fourteen rooms to begin with, and as many more as people start. What goes on in them is not fourteen things &mdash; it is whatever the people nearby happen to know, and whatever they decide to do together.</p>
+    </div>
+  </div>
+</section>
+
+<section style="padding-top:0">
+  <div class="wrap">
+    <p class="eyebrow reveal">How it goes</p>
+    <div class="steps">
+      <div class="step reveal"><b>Walk into a room</b><span>The trade you need, the group you like, or just the chat.</span></div>
+      <div class="step reveal"><b>Talk</b><span>Ask the professionals, plan with the group, say hello.</span></div>
+      <div class="step reveal"><b>Or start your own</b><span>Name it and say what it is for. It is yours to run.</span></div>
+    </div>
+    <div class="stage reveal">
+      <div class="plate" id="plate">
+        <img src="/welcome/app.jpg" alt="The Commons home screen: a room for every trade, the groups people have started, and somewhere to just talk." width="1770" height="1290" loading="lazy">
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="dark">
+  <div class="wrap">
+    <p class="eyebrow reveal">Trust</p>
+    <h2 class="reveal">Built around what can go wrong</h2>
+    <p class="lede reveal">Somebody is coming to your door. That shapes most of the decisions here.</p>
+    <div class="lines">
+      <div class="line reveal"><b>Professionals are checked</b><span>Anybody who answers in a trade room, lists a trade or hosts a get-together has had their identity confirmed by a person. Asking never requires it.</span></div>
+      <div class="line reveal"><b>What the badge means</b><span>That a real, contactable person is behind the account &mdash; not that they are a good plumber. Their reviews are on their page; the ones about paid work say they happened off Commons.</span></div>
+      <div class="line reveal"><b>Trade rooms are curated</b><span>Anyone can start a book club. A room called Plumbers is a claim about who answers in it, so those are set up by moderators.</span></div>
+      <div class="line reveal"><b>No addresses</b><span>A get-together has no location field. The host tells each guest privately once they say they are coming.</span></div>
+      <div class="line reveal"><b>Real accounts only</b><span>Email, phone and username, each confirmed with a code. One account per address and per number, which is most of what stops a spammer opening fifty.</span></div>
+      <div class="line reveal"><b>No documents kept</b><span>An identity check records that it happened, when, and how. The document itself is never uploaded and never stored.</span></div>
+      <div class="line reveal"><b>Reports get read</b><span>Three reports hide something. A moderator then rules on it, and that ruling holds.</span></div>
+    </div>
+    <div class="cta" style="justify-content:flex-start; margin-top:2.5rem">
+      <a class="btn solid" href="/">Go to Commons</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span class="wordmark">Commons</span>
+    <span>Installs as an app on iPhone, Android, Mac and Windows. People and posts in screenshots are fictional.</span>
+  </div>
+</footer>
+
+<script type="module">
+  import { startScene } from '/welcome/scene.js';
+
+  const canvas = document.getElementById('scene');
+  if (canvas) startScene(canvas);
+
+  // Sections arrive as you reach them. Under reduced motion the CSS already
+  // shows everything, so this is harmless there.
+  const reveals = document.querySelectorAll('.reveal');
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) { entry.target.classList.add('in'); io.unobserve(entry.target); }
+      }
+    }, { rootMargin: '0px 0px -12% 0px' });
+    for (const node of reveals) io.observe(node);
+
+    // The slim bar appears once the hero has scrolled away.
+    const bar = document.getElementById('bar');
+    const hero = document.getElementById('top');
+    if (bar && hero) {
+      new IntersectionObserver((entries) => {
+        const heroVisible = entries[0]?.isIntersecting ?? true;
+        bar.classList.toggle('show', !heroVisible);
+        bar.setAttribute('aria-hidden', heroVisible ? 'true' : 'false');
+      }, { threshold: 0.08 }).observe(hero);
+
+    }
+  } else {
+    for (const node of reveals) node.classList.add('in');
+  }
+
+  // The screenshot leans toward the pointer — real perspective, small angles.
+  const plate = document.getElementById('plate');
+  const gentle = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (plate && !gentle) {
+    window.addEventListener('pointermove', (event) => {
+      const box = plate.getBoundingClientRect();
+      const dx = (event.clientX - (box.left + box.width / 2)) / window.innerWidth;
+      const dy = (event.clientY - (box.top + box.height / 2)) / window.innerHeight;
+      plate.style.setProperty('--ry', `${(-12 + dx * 10).toFixed(2)}deg`);
+      plate.style.setProperty('--rx', `${(9 - dy * 6).toFixed(2)}deg`);
+    }, { passive: true });
+  }
+</script>
+</body>
+</html>

@@ -1,27 +1,80 @@
 {
-  "name": "bigmoney",
+  "name": "commons",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Image-to-price-estimate: identify an item from a photo, find comparable listings, aggregate to an estimate.",
+  "description": "Commons: rooms where people talk to each other and to the identity-checked professionals among them. A photo-to-price estimator lives alongside it.",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "dev": "node --experimental-strip-types --watch src/server.ts",
     "start": "node --experimental-strip-types src/server.ts",
+    "pretest": "node scripts/app-sync.mjs",
     "test": "node --experimental-strip-types --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "node test/browser/run.mjs",
+    "test:all": "npm run typecheck && npm test && npm run test:e2e",
+    "test:browser": "node test/browser/commons.ui.mjs",
+    "test:pwa": "node test/browser/pwa.mjs",
+    "test:cinematic": "node test/browser/cinematic.mjs",
+    "seed:demo": "node scripts/seed-demo.mjs",
+    "icons": "node scripts/make-icons.mjs",
+    "push:keys": "node scripts/push-keys.mjs",
+    "app:sync": "node scripts/app-sync.mjs",
+    "app:android": "npx cap open android",
+    "app:ios": "npx cap open ios",
+    "desktop": "electron desktop/main.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
     "@fastify/multipart": "^9.0.1",
-    "@fastify/static": "^8.0.3",
+    "@fastify/static": "^10.1.3",
     "fastify": "^5.2.0",
+    "web-push": "^3.6.7",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/cli": "^8.5.1",
+    "@capacitor/core": "^8.5.1",
+    "@capacitor/ios": "^8.5.1",
     "@types/node": "^22.10.2",
+    "@types/web-push": "^3.6.4",
+    "playwright": "^1.62.1",
     "typescript": "^5.7.2"
-  }
+  },
+  "build": {
+    "appId": "org.commons.app",
+    "productName": "Commons",
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "files": [
+      "desktop/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.social-networking",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "public/icons/icon-512.png"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "public/icons/icon-512.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "public/icons/icon-512.png",
+      "category": "Network"
+    }
+  },
+  "main": "desktop/main.js"
 }

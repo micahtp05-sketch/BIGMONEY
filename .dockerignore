@@ -1,0 +1,17 @@
+node_modules
+.git
+.env
+*.log
+data/community.json
+uploads
+test
+docs
+desktop
+capacitor.config.json
+tsconfig.json
+README.md
+CLAUDE.md
+.github
+android
+ios
+capacitor.config.ts
