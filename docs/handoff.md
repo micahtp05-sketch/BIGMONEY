@@ -45,8 +45,9 @@ is no bundler, no lockfile churn, and why the client is plain ES modules.
 | Command | What it does | Needs |
 |---|---|---|
 | `npm run test:all` | everything below, in order — what CI runs | Chromium once (`npx playwright install chromium`) |
-| `npm test` | 266 unit + API tests, including 106 contrast pairs read from the shipped stylesheet and the production boot guard | nothing, runs offline |
+| `npm test` | 281 unit + API tests, including 106 contrast pairs read from the shipped stylesheet and the production boot guard | nothing, runs offline |
 | `npm run test:e2e` | the three browser suites against a server it starts and stops itself | Chromium |
+| `npm run app:sync` | syncs the native projects, bakes `COMMONS_URL`, draws icons and splashes; CI runs it before `npm test` so the 15 app checks are asserted | nothing |
 | `npm run typecheck` | `tsc --noEmit` | nothing |
 | `npm run test:browser` | 23 interface checks | a running server + Playwright |
 | `npm run test:pwa` | 7 install checks | a running server + Playwright |
@@ -54,7 +55,7 @@ is no bundler, no lockfile churn, and why the client is plain ES modules.
 | `npm run seed:demo` | fills an empty instance via the public API | a running server |
 | `npm run icons` | regenerates app icons from source | nothing |
 
-**303 checks, all green** (266 + 23 + 7 + 7), and the 23 interface checks pass again under `prefers-reduced-motion: reduce`. `.github/workflows/ci.yml` runs `npm run test:all` on every push.
+**318 checks, all green** (281 + 23 + 7 + 7), and the 23 interface checks pass again under `prefers-reduced-motion: reduce`. `.github/workflows/ci.yml` runs `npm run test:all` on every push.
 
 ---
 
@@ -156,7 +157,7 @@ rules are in `docs/simple-ui.md`; packaging is in `docs/apps.md`.
 | | Gap | Why it matters |
 |---|---|---|
 | High | **Identity checking does not scale** | A moderator arranges to see something in person. Fine for a street, not a city, and while the queue is unattended nobody new can answer. |
-| Med | **No notifications** | Ask a question, close the tab, never learn it was answered. Biggest retention risk, and the native justification a store submission needs. |
+| Med | **No notifications** | Ask a question, close the tab, never learn it was answered. Biggest retention risk, and the native justification a store submission needs. `docs/apps.md` §4 lays out Web Push vs native push; it needs the owner's call on the first runtime dependency. |
 | Med | **Reviews cannot be answered** | Deliberate (owner's call). A mistaken `hired` review sits on someone's trade and now also moves them down a ranked list. |
 | Med | **Private channels are unmoderatable** | By design. Nothing reaches a moderator unless the recipient reports it. |
 | Med | **Nothing paginates** | Every list stops at 50 with no "show more". |
@@ -164,7 +165,7 @@ rules are in `docs/simple-ui.md`; packaging is in `docs/apps.md`.
 | Low | **Search is a substring scan** | Over every thread, every time. |
 | Low | **Service worker version is manual** | Change `commons.js` or `commons.css` without bumping `SHELL_VERSION` and returning users keep the old file. Currently `commons-shell-v5`. |
 | Low | **Accessibility specified, not audited** | `docs/simple-ui.md` sets a numeric floor and some of it is enforced by tests. No screen reader has touched it. |
-| Low | **Capacitor / Electron never built** | Scaffolded only; no Xcode, no Android SDK, no Electron binary in the build container. See `docs/apps.md`. |
+| Med | **Store apps not yet compiled** | The iPhone and Android projects are generated, carry real icons and splashes, sync with one command and have 15 tests — but no Xcode or Android SDK exists in the build container. The first build is on the owner's machine; `docs/apps.md` is the path. Electron: shell reviewed, build configured, binary not installed. |
 | Low | **eBay adapter never ran live** | Inherited from the pre-existing estimator, unchanged. |
 
 ## 6. If you do three things
@@ -192,10 +193,12 @@ public/commons.css      the design system: tokens with computed ratios, type sca
 public/ambient.js       the constellation inside the header, still until somebody speaks
 public/welcome/         landing page + the 3D constellation (canvas, no library)
 public/fonts/           the five faces shared by site and app
-test/                   266 offline tests, contrast.test.ts among them
+test/                   281 offline tests, contrast.test.ts among them
 test/browser/           37 checks that need a real browser (ui, pwa, cinematic); run.mjs runs them
 Dockerfile              one image, /data volume, unprivileged user — see docs/deploy.md
 CLAUDE.md               the short version of this file, for whoever opens the repo next
+android/  ios/          the native app projects (Capacitor); desktop/ the Electron shell
+capacitor.config.ts     the apps' identity, colours and server address
 docs/simple-ui.md       the interface standard the UI is held to
 docs/apps.md            what installs where, and what was never built
 scripts/seed-demo.mjs   fills an instance through the public API

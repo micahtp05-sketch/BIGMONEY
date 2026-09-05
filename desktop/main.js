@@ -68,7 +68,7 @@ function createWindow(origin) {
     width: 1100,
     height: 820,
     minWidth: 380,
-    backgroundColor: '#F5F5F2',
+    backgroundColor: '#F6F1E8',   // the app's paper, so the window is not white before the page paints
     title: 'Commons',
     webPreferences: {
       // The remote page gets no Node access whatsoever.

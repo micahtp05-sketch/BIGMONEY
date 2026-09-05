@@ -12,3 +12,6 @@ tsconfig.json
 README.md
 CLAUDE.md
 .github
+android
+ios
+capacitor.config.ts

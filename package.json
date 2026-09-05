@@ -19,6 +19,9 @@
     "test:cinematic": "node test/browser/cinematic.mjs",
     "seed:demo": "node scripts/seed-demo.mjs",
     "icons": "node scripts/make-icons.mjs",
+    "app:sync": "node scripts/app-sync.mjs",
+    "app:android": "npx cap open android",
+    "app:ios": "npx cap open ios",
     "desktop": "electron desktop/main.js"
   },
   "dependencies": {
@@ -29,8 +32,45 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/cli": "^8.5.1",
+    "@capacitor/core": "^8.5.1",
+    "@capacitor/ios": "^8.5.1",
     "@types/node": "^22.10.2",
     "playwright": "^1.62.1",
     "typescript": "^5.7.2"
-  }
+  },
+  "build": {
+    "appId": "org.commons.app",
+    "productName": "Commons",
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "files": [
+      "desktop/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.social-networking",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "public/icons/icon-512.png"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "public/icons/icon-512.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "public/icons/icon-512.png",
+      "category": "Network"
+    }
+  },
+  "main": "desktop/main.js"
 }
