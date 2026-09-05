@@ -24,6 +24,7 @@ import {
   validateEmail,
   validatePhone,
 } from './verify.ts';
+import { SendFailed } from './senders/index.ts';
 import { CommunityStore, publicUser } from './store.ts';
 import type { Channel, MeetupMessage, ModerationCase, ReportTarget, Reply, Review, Thread, User } from './types.ts';
 import { replyView, reviewView, summarise, threadView } from './views.ts';
@@ -364,13 +365,17 @@ export function communityRoutes(options: CommunityOptions = {}) {
         phone: input.phone,
         credential,
       });
-      await issueCode(store, sender, user.id, 'email', user.email);
-      await issueCode(store, sender, user.id, 'phone', user.phone);
+      // Both codes are attempted; neither failing stops the sign-up. The
+      // response says which went, so the client can say so in plain words.
+      const codesSent = {
+        email: await tryIssue(request, user.id, 'email', user.email),
+        phone: await tryIssue(request, user.id, 'phone', user.phone),
+      };
       if (seededModerators.has(user.handle)) {
         user.role = 'moderator';
         store.touch();
       }
-      return sendSession(reply, user);
+      return sendSession(reply, user, { codesSent });
     });
 
     app.post('/auth/login', async (request, reply) => {
@@ -388,12 +393,32 @@ export function communityRoutes(options: CommunityOptions = {}) {
       return sendSession(reply, user);
     });
 
-    function sendSession(reply: FastifyReply, user: User) {
+    function sendSession(reply: FastifyReply, user: User, extra: Record<string, unknown> = {}) {
       const token = newSessionToken();
       store.createSession(user.id, token, SESSION_TTL_MS);
       return reply
         .header('set-cookie', serializeSessionCookie(token, SESSION_TTL_MS / 1000))
-        .send({ user: publicUser(user) });
+        .send({ user: publicUser(user), ...extra });
+    }
+
+    /**
+     * Send a code and say whether it went, instead of throwing.
+     *
+     * A provider being down must never fail the thing around it. Found by
+     * booting the deployable image against a network that refused the
+     * provider: the account was created, the send threw, the person saw a 500
+     * and then "that username is taken". The failure is logged with the
+     * provider's status — never its body, which can contain the code or the key.
+     */
+    async function tryIssue(request: FastifyRequest, userId: string, channel: 'email' | 'phone' | 'reset', to: string): Promise<boolean> {
+      try {
+        await issueCode(store, sender, userId, channel, to);
+        return true;
+      } catch (error) {
+        const status = error instanceof SendFailed ? error.status : null;
+        request.log.warn({ channel, status, err: error instanceof Error ? error.message : String(error) }, 'one-time code did not go');
+        return false;
+      }
     }
 
     app.post('/auth/logout', async (request, reply) => {
@@ -449,8 +474,11 @@ export function communityRoutes(options: CommunityOptions = {}) {
       const user = requireUser(request);
       const input = z.object({ channel: z.enum(['email', 'phone']) }).parse(request.body);
       limit(user, `code-${input.channel}`, 5, 60 * 60 * 1000);
-      await issueCode(store, sender, user.id, input.channel, input.channel === 'email' ? user.email : user.phone);
-      return { ok: true, sentTo: input.channel === 'email' ? user.email : user.phone };
+      const to = input.channel === 'email' ? user.email : user.phone;
+      if (!(await tryIssue(request, user.id, input.channel, to))) {
+        throw new HttpError(502, 'We could not send the code just now. Try again in a minute.');
+      }
+      return { ok: true, sentTo: to };
     });
 
     app.post('/auth/confirm-code', async (request) => {
@@ -481,7 +509,7 @@ export function communityRoutes(options: CommunityOptions = {}) {
       }
       const user = store.userByEmail(input.email);
       // Always the same answer, so this cannot be used to find out who is here.
-      if (user) await issueCode(store, sender, user.id, 'reset', user.email);
+      if (user) await tryIssue(request, user.id, 'reset', user.email);
       return { ok: true };
     });
 

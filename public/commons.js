@@ -1581,11 +1581,15 @@ function viewJoin() {
             password: password.value,
           }
         : { handle: username.value.trim(), password: password.value };
-      const { user } = await api(`/auth/${mode}`, { method: 'POST', body });
+      const { user, codesSent } = await api(`/auth/${mode}`, { method: 'POST', body });
       state.me = user;
       renderAccount(); renderNav();
       await Promise.all([loadCategories(), loadHellos()]);
-      say(`Welcome, ${user.displayName}.`);
+      // A code that did not go is said plainly, and the person is still in.
+      const missed = codesSent && (!codesSent.email || !codesSent.phone);
+      say(missed
+        ? `Welcome, ${user.displayName}. We could not send your code just now. Ask for it again from your page.`
+        : `Welcome, ${user.displayName}.`);
       go('#/');
     } catch (error) {
       note.replaceChildren(el('span', { class: 'err', text: error.message }));

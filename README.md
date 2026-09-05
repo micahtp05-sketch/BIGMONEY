@@ -38,13 +38,14 @@ members (`SEED_ALLOW_REMOTE=1` / `SEED_FORCE=1` override; read what they say fir
 ```bash
 npm run test:all          # everything below, in order
 npm run typecheck
-npm test                  # 262 unit and API tests. No network, no browser.
+npm test                  # 266 unit and API tests. No network, no browser.
 npm run test:e2e          # 37 checks in a real browser: interface, install, cinematic layer
 ```
 
 `npm test` runs offline with nothing beyond what is in `package.json`. It includes 106
 contrast pairs read from the shipped stylesheet, a test that fails if an email or phone
-number ever appears in a profile or directory response, and the production boot guard.
+number ever appears in a profile or directory response, the production boot guard, and
+sign-up surviving a code provider that is down.
 
 `npm run test:e2e` starts its own in-memory server on a free port, seeds it, runs the
 three browser suites and stops it. It needs a Chromium once: `npx playwright install

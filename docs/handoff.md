@@ -45,7 +45,7 @@ is no bundler, no lockfile churn, and why the client is plain ES modules.
 | Command | What it does | Needs |
 |---|---|---|
 | `npm run test:all` | everything below, in order — what CI runs | Chromium once (`npx playwright install chromium`) |
-| `npm test` | 262 unit + API tests, including 106 contrast pairs read from the shipped stylesheet and the production boot guard | nothing, runs offline |
+| `npm test` | 266 unit + API tests, including 106 contrast pairs read from the shipped stylesheet and the production boot guard | nothing, runs offline |
 | `npm run test:e2e` | the three browser suites against a server it starts and stops itself | Chromium |
 | `npm run typecheck` | `tsc --noEmit` | nothing |
 | `npm run test:browser` | 23 interface checks | a running server + Playwright |
@@ -54,7 +54,7 @@ is no bundler, no lockfile churn, and why the client is plain ES modules.
 | `npm run seed:demo` | fills an empty instance via the public API | a running server |
 | `npm run icons` | regenerates app icons from source | nothing |
 
-**299 checks, all green** (262 + 23 + 7 + 7), and the 23 interface checks pass again under `prefers-reduced-motion: reduce`. `.github/workflows/ci.yml` runs `npm run test:all` on every push.
+**303 checks, all green** (266 + 23 + 7 + 7), and the 23 interface checks pass again under `prefers-reduced-motion: reduce`. `.github/workflows/ci.yml` runs `npm run test:all` on every push.
 
 ---
 
@@ -192,7 +192,7 @@ public/commons.css      the design system: tokens with computed ratios, type sca
 public/ambient.js       the constellation inside the header, still until somebody speaks
 public/welcome/         landing page + the 3D constellation (canvas, no library)
 public/fonts/           the five faces shared by site and app
-test/                   258 offline tests, contrast.test.ts among them
+test/                   266 offline tests, contrast.test.ts among them
 test/browser/           37 checks that need a real browser (ui, pwa, cinematic); run.mjs runs them
 Dockerfile              one image, /data volume, unprivileged user — see docs/deploy.md
 CLAUDE.md               the short version of this file, for whoever opens the repo next

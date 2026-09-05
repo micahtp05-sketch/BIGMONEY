@@ -66,7 +66,9 @@ own edge.
 1. Open `/`. Sign up with the handle you put in `COMMUNITY_MODERATORS`.
 2. Confirm your email — this is the first live send. If the code does not arrive, the
    provider's dashboard shows the attempt and the server log shows the response
-   status (never the body, never the key).
+   status (never the body, never the key). A failed send never fails a sign-up: the
+   account exists, the person is signed in, and **Send me a code** on their page
+   tries again.
 3. You are a moderator: the **Reports** tab is there. Ask for an identity check on your
    own page and approve it, so there is one checked professional to start with.
 4. Open `/welcome/` on a phone and add it to the home screen.
